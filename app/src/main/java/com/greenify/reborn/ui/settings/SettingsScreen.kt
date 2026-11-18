@@ -233,14 +233,14 @@ fun SettingsScreen(
         }
 
         item {
-            SectionTitle("About Greenify Reborn")
+            SectionTitle("About Siesta")
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
             ) {
                 Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = "Greenify Reborn v${BuildConfig.VERSION_NAME}",
+                        text = "Siesta v${BuildConfig.VERSION_NAME}",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
                     )

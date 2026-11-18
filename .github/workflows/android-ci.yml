@@ -34,5 +34,5 @@ jobs:
       - name: Upload Debug APK artifact
         uses: actions/upload-artifact@v7
         with:
-          name: greenify-reborn-debug-apk
+          name: siesta-debug-apk
           path: app/build/outputs/apk/debug/*.apk

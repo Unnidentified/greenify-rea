@@ -1,6 +1,6 @@
-# Contributing to Greenify Reborn
+# Contributing to Siesta
 
-Thank you for contributing to **Greenify Reborn**!
+Thank you for contributing to **Siesta**!
 
 ## Development Setup
 

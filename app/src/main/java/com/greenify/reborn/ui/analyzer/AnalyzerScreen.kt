@@ -283,7 +283,7 @@ private fun AppDiagnosticSheet(
                 onClick = onToggleGreenify,
                 modifier = Modifier.weight(1f),
             ) {
-                Text(if (app.isGreenified) "Remove" else "Add to Greenify")
+                Text(if (app.isGreenified) "Remove" else "Add to Siesta")
             }
         }
         Spacer(Modifier.height(4.dp))

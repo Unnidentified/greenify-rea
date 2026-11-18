@@ -209,7 +209,7 @@ private fun GreenifyRebornShell(
                 title = {
                     Text(
                         when (currentTab) {
-                            TopTab.HIBERNATION -> "Greenify Reborn"
+                            TopTab.HIBERNATION -> "Siesta"
                             TopTab.ANALYZER -> "App Analyzer"
                             TopTab.SETTINGS -> "Settings"
                         },
@@ -300,7 +300,7 @@ private fun GreenifyRebornShell(
                         notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                     }
                 },
-                onExportJson = { exportLauncher.launch("greenify-reborn-backup.json") },
+                onExportJson = { exportLauncher.launch("siesta-backup.json") },
                 onImportJson = { importLauncher.launch(arrayOf("application/json", "*/*")) },
                 modifier = contentModifier,
             )

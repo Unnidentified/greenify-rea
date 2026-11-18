@@ -1,16 +1,22 @@
 <p align="center">
-  <img src="assets/icon.svg" width="84" height="84" alt="Greenify Reborn icon">
+  <img src="assets/icon.svg" width="84" height="84" alt="Siesta icon">
 </p>
 
-<h1 align="center">Greenify Reborn</h1>
+<h1 align="center">Siesta</h1>
 
 <p align="center">
   A clean-room, open-source Kotlin &amp; Material 3 reimagining of Android app hibernation for modern Android (12–16+).
 </p>
 
+<p align="center">
+  <a href="https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml"><img src="https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml/badge.svg" alt="Android CI"></a>
+  <a href="https://github.com/Unnidentified/greenify-rea/releases"><img src="https://img.shields.io/github/v/release/Unnidentified/greenify-rea?include_prereleases" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+</p>
+
 ---
 
-## Why "Reborn"?
+## Why Siesta?
 
 Reverse-engineering the legacy `com.oasisfeng.greenify` (`5.1.1`) APK revealed several architectural bottlenecks and modern Android incompatibilities:
 - **Signature-killer wrapper:** Legacy repackaged builds injected `KillerApplication` hooks around a missing native library.
@@ -18,13 +24,13 @@ Reverse-engineering the legacy `com.oasisfeng.greenify` (`5.1.1`) APK revealed s
 - **Android 14/15 foreground & BAL breakages:** `IntentService`, untyped `startForeground()`, 30-minute `AlarmManager` polling, and `BroadcastReceiver.startActivity()` (blocked by Background Activity Launch rules).
 - **Deprecated UI & telemetry:** Light-only `PreferenceActivity`, `ProgressDialog`, `SetupWizardLib`, and bundled Firebase/Crashlytics keys.
 
-**Greenify Reborn** rebuilds the experience cleanly in Kotlin + Jetpack Compose + Material 3 with **zero telemetry**, **Shizuku-first** ergonomics, and **Android 12–16+** compliance.
+**Siesta** rebuilds the experience cleanly in Kotlin + Jetpack Compose + Material 3 with **zero telemetry**, **Shizuku-first** ergonomics, and **Android 12–16+** compliance.
 
 ## Key Features
 
 - **Material 3 UI:** Dynamic Color (Material You), System/Light/Dark themes, Edge-to-Edge layout, and Predictive Back support.
 - **Three-Tab Workflow:**
-  - **Hibernation:** Live working-mode card, curated greenified apps list, standby bucket badges, search, and one-tap **Hibernate All**.
+  - **Hibernation:** Live working-mode card, curated hibernated apps list, standby bucket badges, search, and one-tap **Hibernate All**.
   - **Analyzer:** Installed app scanner with running/stopped indicators, Android Standby Bucket status, and `ApplicationExitInfo` diagnostics.
   - **Settings:** Working mode (`Auto`, `Shizuku`, `Root`, `Non-Root`), Shallow Hibernation, `WorkManager` Auto-Hibernation, theme preferences, and local JSON import/export.
 - **Quick Settings Tile:** One-tap *Hibernate Now* tile directly in the Android Quick Settings shade.
@@ -32,7 +38,7 @@ Reverse-engineering the legacy `com.oasisfeng.greenify` (`5.1.1`) APK revealed s
 
 ## Tech Stack
 
-- **Language:** Kotlin 2.1
+- **Language:** Kotlin 2.4
 - **UI:** Jetpack Compose, Material 3, Navigation Compose
 - **Concurrency & Scheduling:** Kotlin Coroutines, `WorkManager`
 - **Privileged Backends:** Shizuku (`dev.rikka.shizuku:api` & `provider`), Root (`su` batched `am force-stop`), `UsageStatsManager`
@@ -47,6 +53,9 @@ Reverse-engineering the legacy `com.oasisfeng.greenify` (`5.1.1`) APK revealed s
 ### Commands
 
 ```bash
+git clone https://github.com/Unnidentified/greenify-rea.git
+cd greenify-rea
+
 # Run unit tests, Android Lint, and build debug APK
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 

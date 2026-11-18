@@ -1,5 +1,5 @@
 name: Bug Report
-description: Report a crash, hibernation issue, or UI bug in Greenify Reborn
+description: Report a crash, hibernation issue, or UI bug in Siesta
 title: "[Bug]: "
 labels: ["bug"]
 body:

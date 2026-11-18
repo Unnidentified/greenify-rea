@@ -138,7 +138,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
     fun toggleGreenified(app: AppEntry) {
         val added = preferences.toggleGreenified(app.packageName)
         _events.tryEmit(
-            if (added) "Added ${app.label} to Greenify" else "Removed ${app.label}",
+            if (added) "Added ${app.label} to Siesta" else "Removed ${app.label}",
         )
     }
 
