@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "skills": {
+    "android-reverse-engineering": {
+      "source": "SimoneAvogadro/android-reverse-engineering-skill",
+      "commit": "0c7cf89830993df7dfc178498f69952262808bea",
+      "sourceType": "github",
+      "skillPath": "plugins/android-reverse-engineering/skills/android-reverse-engineering/SKILL.md",
+      "computedHash": "cf0eb07e5303278776ddcd57b2cd7225dadb158e648c1121e58745a97c986fac"
+    },
+    "apktool": {
+      "source": "BrownFineSecurity/iothackbot",
+      "commit": "d443c408a9fdd83f97d8c354b9c639afa2251974",
+      "sourceType": "github",
+      "skillPath": "skills/apktool/SKILL.md",
+      "computedHash": "332becc66fc1cacb690c839b42524ab79c105a98739569f6bd485b21d66c2edc"
+    },
+    "jadx": {
+      "source": "BrownFineSecurity/iothackbot",
+      "commit": "d443c408a9fdd83f97d8c354b9c639afa2251974",
+      "sourceType": "github",
+      "skillPath": "skills/jadx/SKILL.md",
+      "computedHash": "abcb0b7023d393e0eac7bf65e5aa5220bd06cd7be17a9622d3aa71c679245947"
+    }
+  }
+}
