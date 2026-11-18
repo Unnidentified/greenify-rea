@@ -1,0 +1,29 @@
+# Gradle & build outputs
+.gradle/
+.kotlin/
+build/
+*/build/
+!gradle/wrapper/gradle-wrapper.jar
+
+# Local IDE / SDK configuration
+local.properties
+.idea/
+*.iml
+.cxx/
+captures/
+
+# Keystores & secrets
+*.jks
+*.keystore
+keystore.properties
+
+# Reverse-engineering & local workspace artifacts (never commit extracted binaries/decompiled dumps)
+extracted/
+decompiled/
+.repowise/
+
+# OS & editor files
+.DS_Store
+Thumbs.db
+*.swp
+*~

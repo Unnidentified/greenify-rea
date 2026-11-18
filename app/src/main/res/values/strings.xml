@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">Greenify Reborn</string>
+    <string name="tile_hibernate_label">Hibernate Now</string>
+    <string name="channel_hibernation_id">hibernation_summary</string>
+    <string name="channel_hibernation_name">Hibernation Status</string>
+    <string name="channel_hibernation_desc">Optional summary notifications after automated or tile-triggered hibernation.</string>
+</resources>
