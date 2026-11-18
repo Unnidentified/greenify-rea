@@ -1,5 +1,5 @@
 name: Feature Request
-description: Suggest an enhancement or new capability for Greenify Reborn
+description: Suggest an enhancement or new capability for Siesta
 title: "[Feature]: "
 labels: ["enhancement"]
 body:
