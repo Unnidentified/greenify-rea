@@ -8,11 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Simplified navigation to two tabs (`Home`, `Settings`) by unifying app discovery (`Managed`, `All apps`, `Awake` filters) into Home
+- Replaced the permanent Home backend card with a red degraded-only status card and single summary line (`X apps managed, Y awake`)
+- Collapsed app rows to a single interaction model (tap = hibernate, long-press = detail sheet) and removed all `"Unknown"` standby badges
+- Updated UI copy across the app to Siesta nap terminology
 - Rebranded the application display name to **Siesta** (preserving the `com.greenify.reborn` package namespace and `applicationId`)
 - Renamed the repository to `greenify-rea` and updated repository links and badges
 - Designed a new minimalist adaptive & monochrome launcher icon for **Siesta**
 
 ### Added
+- Local `WakeupTracker` engine reconciling process active state and `UsageStatsManager` wake events after naps (with unit tests)
 - Clean-room Kotlin & Jetpack Compose Material 3 foundation (`minSdk 31`, `targetSdk 36`, `compileSdk 36`)
 - Material 3 UI with Dynamic Color (Material You), Light/Dark/System themes, Edge-to-Edge, and Predictive Back
 - **Hibernation** dashboard with Working Mode status banner, running/hibernated summary, search, and one-tap **Hibernate All**

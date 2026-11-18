@@ -29,10 +29,9 @@ Reverse-engineering the legacy `com.oasisfeng.greenify` (`5.1.1`) APK revealed s
 ## Key Features
 
 - **Material 3 UI:** Dynamic Color (Material You), System/Light/Dark themes, Edge-to-Edge layout, and Predictive Back support.
-- **Three-Tab Workflow:**
-  - **Hibernation:** Live working-mode card, curated hibernated apps list, standby bucket badges, search, and one-tap **Hibernate All**.
-  - **Analyzer:** Installed app scanner with running/stopped indicators, Android Standby Bucket status, and `ApplicationExitInfo` diagnostics.
-  - **Settings:** Working mode (`Auto`, `Shizuku`, `Root`, `Non-Root`), Shallow Hibernation, `WorkManager` Auto-Hibernation, theme preferences, and local JSON import/export.
+- **Two-Tab Workflow:**
+  - **Home:** Unified app list with `Managed`, `All apps`, and `Awake` filters, single summary line, search, degraded-only backend alert, tap-to-hibernate rows, long-press detail sheet (Standby Bucket, wake-up tracking, and `ApplicationExitInfo` diagnostics), and **Hibernate All**.
+  - **Settings:** Working mode (`Auto`, `Shizuku`, `Root`, `Non-Root`), Shallow Naps, `WorkManager` Scheduled Naps, theme preferences, and local JSON import/export.
 - **Quick Settings Tile:** One-tap *Hibernate Now* tile directly in the Android Quick Settings shade.
 - **Privacy First:** No Firebase, no Crashlytics, no ad/analytics SDKs, and modern Android `data_extraction_rules`.
 
@@ -68,13 +67,12 @@ cd greenify-rea
 ```text
 app/src/main/java/com/greenify/reborn/
 ├── data/            # Preferences, JSON backup/export, and app repository
-├── engine/          # Shizuku, Root, UsageStats, WorkManager, and TileService
-├── model/           # Domain models (AppEntry, WorkingMode, StandbyBucket, ExitReason)
+├── engine/          # Shizuku, Root, WakeupTracker, WorkManager, and TileService
+├── model/           # Domain models (AppEntry, WorkingMode, StandbyBucket, WakeupEvent)
 └── ui/
-    ├── analyzer/    # App Analyzer & Insights screen + detail sheet
-    ├── components/  # Reusable Material 3 cards, badges, and mode status banners
-    ├── home/        # Hibernation dashboard screen
-    ├── settings/    # Material 3 Settings & Onboarding/Permissions sheets
+    ├── components/  # Reusable Material 3 cards, badges, and degraded-backend alert
+    ├── home/        # Unified Home screen + long-press App Detail Sheet
+    ├── settings/    # Material 3 Settings & Privileges screen
     └── theme/       # Material 3 color schemes, Dynamic Color, typography
 ```
 
