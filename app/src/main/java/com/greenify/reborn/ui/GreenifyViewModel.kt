@@ -19,15 +19,14 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
-enum class AnalyzerFilter(val label: String) {
-    ALL("All"),
-    RUNNING("Running"),
-    NON_RESTRICTED("Active Bucket"),
+enum class HomeFilter(val label: String) {
+    MANAGED("Managed"),
+    ALL_APPS("All apps"),
+    AWAKE("Awake"),
 }
 
 data class MainUiState(
@@ -45,34 +44,22 @@ data class MainUiState(
     val isLoadingApps: Boolean = true,
     val isHibernating: Boolean = false,
     val homeQuery: String = "",
-    val analyzerQuery: String = "",
-    val analyzerFilter: AnalyzerFilter = AnalyzerFilter.ALL,
+    val homeFilter: HomeFilter = HomeFilter.MANAGED,
 ) {
-    val greenifiedApps: List<AppEntry>
-        get() = allApps.filter { it.isGreenified }
+    val managedApps: List<AppEntry>
+        get() = allApps.filter { it.isManaged }
 
-    val filteredGreenifiedApps: List<AppEntry>
+    val awakeManagedCount: Int
+        get() = managedApps.count { !it.isStopped }
+
+    val filteredApps: List<AppEntry>
         get() {
             val q = homeQuery.trim().lowercase()
-            return if (q.isEmpty()) {
-                greenifiedApps
-            } else {
-                greenifiedApps.filter {
-                    it.label.lowercase().contains(q) || it.packageName.lowercase().contains(q)
-                }
-            }
-        }
-
-    val filteredAnalyzerApps: List<AppEntry>
-        get() {
-            val q = analyzerQuery.trim().lowercase()
             return allApps.filter { app ->
-                val matchesFilter = when (analyzerFilter) {
-                    AnalyzerFilter.ALL -> true
-                    AnalyzerFilter.RUNNING -> !app.isStopped
-                    AnalyzerFilter.NON_RESTRICTED ->
-                        app.standbyBucket != com.greenify.reborn.model.StandbyBucket.RESTRICTED &&
-                            app.standbyBucket != com.greenify.reborn.model.StandbyBucket.RARE
+                val matchesFilter = when (homeFilter) {
+                    HomeFilter.MANAGED -> app.isManaged
+                    HomeFilter.ALL_APPS -> true
+                    HomeFilter.AWAKE -> !app.isStopped
                 }
                 val matchesQuery = q.isEmpty() ||
                     app.label.lowercase().contains(q) ||
@@ -108,15 +95,17 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
             _uiState.update { it.copy(isLoadingApps = it.allApps.isEmpty()) }
             val settings = preferences.state.value
             val env = repository.inspectEnvironment(settings.workingMode)
-            val apps = repository.loadInstalledApps(
-                greenifiedPackages = settings.greenifiedPackages,
-                lastHibernatedTimestamps = settings.lastHibernatedTimestamps,
+            val snapshot = repository.loadInstalledApps(
+                managedPackages = settings.managedPackages,
+                lastNappedTimestamps = settings.lastNappedTimestamps,
+                wakeupRecords = settings.wakeupRecords,
                 includeSystemApps = settings.includeSystemApps,
             )
+            preferences.updateWakeupRecords(snapshot.updatedWakeupRecords)
             _uiState.update {
                 it.copy(
                     environment = env,
-                    allApps = apps,
+                    allApps = snapshot.apps,
                     isLoadingApps = false,
                 )
             }
@@ -127,36 +116,32 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(homeQuery = query) }
     }
 
-    fun updateAnalyzerQuery(query: String) {
-        _uiState.update { it.copy(analyzerQuery = query) }
+    fun updateHomeFilter(filter: HomeFilter) {
+        _uiState.update { it.copy(homeFilter = filter) }
     }
 
-    fun updateAnalyzerFilter(filter: AnalyzerFilter) {
-        _uiState.update { it.copy(analyzerFilter = filter) }
-    }
-
-    fun toggleGreenified(app: AppEntry) {
-        val added = preferences.toggleGreenified(app.packageName)
+    fun toggleManaged(app: AppEntry) {
+        val added = preferences.toggleManaged(app.packageName)
         _events.tryEmit(
-            if (added) "Added ${app.label} to Siesta" else "Removed ${app.label}",
+            if (added) "Added ${app.label} to nap list" else "Removed ${app.label} from nap list",
         )
     }
 
     fun hibernateAll() {
-        val targets = _uiState.value.greenifiedApps.map { it.packageName }
+        val targets = _uiState.value.managedApps.map { it.packageName }
+        if (targets.isEmpty()) {
+            _events.tryEmit("Add apps from All apps to put them down for a nap.")
+            return
+        }
         hibernatePackages(targets)
     }
 
-    fun hibernateSingle(packageName: String) {
-        hibernatePackages(listOf(packageName))
+    fun hibernateSingle(app: AppEntry) {
+        hibernatePackages(listOf(app.packageName))
     }
 
     private fun hibernatePackages(packages: List<String>) {
-        if (packages.isEmpty()) {
-            _events.tryEmit("Select at least one app in Analyzer first.")
-            return
-        }
-        if (_uiState.value.isHibernating) return
+        if (packages.isEmpty() || _uiState.value.isHibernating) return
 
         viewModelScope.launch {
             _uiState.update { it.copy(isHibernating = true) }
@@ -224,7 +209,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
     fun importBackupJson(rawJson: String) {
         preferences.importBackupJson(rawJson)
             .onSuccess { count ->
-                _events.tryEmit("Imported $count greenified app(s) from backup.")
+                _events.tryEmit("Imported $count app(s) into your nap list.")
             }
             .onFailure { err ->
                 _events.tryEmit("Backup import failed: ${err.message}")

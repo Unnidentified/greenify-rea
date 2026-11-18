@@ -10,21 +10,19 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Shield
-import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ElevatedCard
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,10 +39,8 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.greenify.reborn.model.EnvironmentStatus
-import com.greenify.reborn.model.ResolvedBackend
 import com.greenify.reborn.model.StandbyBucket
 import com.greenify.reborn.model.WorkingMode
 import kotlinx.coroutines.Dispatchers
@@ -98,126 +94,103 @@ private fun drawableToBitmap(drawable: Drawable): Bitmap {
     return bitmap
 }
 
+/**
+ * Shown on Home ONLY when the active working mode's backend is down or degraded.
+ */
 @Composable
-fun ModeStatusCard(
+fun DegradedBackendCard(
     environment: EnvironmentStatus,
     preferredMode: WorkingMode,
     onRequestShizuku: () -> Unit,
+    onOpenShizukuApp: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val containerColor = when (environment.resolvedBackend) {
-        ResolvedBackend.SHIZUKU, ResolvedBackend.ROOT -> MaterialTheme.colorScheme.primaryContainer
-        ResolvedBackend.NON_ROOT -> MaterialTheme.colorScheme.secondaryContainer
-    }
-    val contentColor = when (environment.resolvedBackend) {
-        ResolvedBackend.SHIZUKU, ResolvedBackend.ROOT -> MaterialTheme.colorScheme.onPrimaryContainer
-        ResolvedBackend.NON_ROOT -> MaterialTheme.colorScheme.onSecondaryContainer
-    }
+    val title: String
+    val subtitle: String
+    val actionLabel: String
+    val onFix: () -> Unit
 
-    val subtitle = when {
-        environment.resolvedBackend == ResolvedBackend.SHIZUKU ->
-            "Privileged ADB mode active via Shizuku (batched force-stop & standby)"
-        environment.resolvedBackend == ResolvedBackend.ROOT ->
-            "Root (su) mode active (single-pass batched commands)"
-        environment.shizukuRunning && !environment.shizukuPermissionGranted ->
-            "Shizuku is running — grant permission to enable one-tap hibernation"
-        else ->
-            "Running in Non-Root mode. Start Shizuku or Root for automated force-stop"
+    when {
+        environment.shizukuRunning && !environment.shizukuPermissionGranted &&
+            (preferredMode == WorkingMode.AUTO || preferredMode == WorkingMode.SHIZUKU) -> {
+            title = "Shizuku permission needed"
+            subtitle = "Shizuku is running, but Siesta needs permission to put apps to sleep."
+            actionLabel = "Grant"
+            onFix = onRequestShizuku
+        }
+
+        environment.shizukuInstalled && !environment.shizukuRunning &&
+            (preferredMode == WorkingMode.AUTO || preferredMode == WorkingMode.SHIZUKU) -> {
+            title = "Shizuku service is stopped"
+            subtitle = "Start Shizuku via Wireless Debugging to restore one-tap naps."
+            actionLabel = "Open Shizuku"
+            onFix = onOpenShizukuApp
+        }
+
+        preferredMode == WorkingMode.ROOT && !environment.rootAvailable -> {
+            title = "Root access unavailable"
+            subtitle = "No su binary detected. Switch working mode or grant root."
+            actionLabel = "Settings"
+            onFix = onOpenSettings
+        }
+
+        else -> {
+            title = "Nap engine degraded"
+            subtitle = "Neither Shizuku nor Root is active for ${preferredMode.displayName} mode."
+            actionLabel = "Fix in Settings"
+            onFix = onOpenSettings
+        }
     }
 
     ElevatedCard(
         modifier = modifier.fillMaxWidth(),
         colors = CardDefaults.elevatedCardColors(
-            containerColor = containerColor,
-            contentColor = contentColor,
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+            contentColor = MaterialTheme.colorScheme.onErrorContainer,
         ),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
+                modifier = Modifier.size(38.dp),
             ) {
-                Surface(
-                    shape = CircleShape,
-                    color = contentColor.copy(alpha = 0.14f),
-                    modifier = Modifier.size(40.dp),
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Outlined.Shield,
-                            contentDescription = null,
-                            tint = contentColor,
-                        )
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "${environment.resolvedBackend.displayName} Backend • ${preferredMode.displayName}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    Text(
-                        text = subtitle,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = contentColor.copy(alpha = 0.85f),
-                    )
-                }
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (environment.shizukuRunning && !environment.shizukuPermissionGranted) {
-                    FilledTonalButton(onClick = onRequestShizuku) {
-                        Text("Grant Shizuku")
-                    }
-                }
-                FilledTonalButton(onClick = onOpenSettings) {
+                Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        imageVector = Icons.Outlined.Tune,
+                        imageVector = Icons.Outlined.ErrorOutline,
                         contentDescription = null,
-                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.error,
                     )
-                    Spacer(Modifier.width(6.dp))
-                    Text("Configure Mode")
                 }
             }
-        }
-    }
-}
-
-@Composable
-fun StatPill(
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier,
-) {
-    Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-    ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Text(
-                text = value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.88f),
+                )
+            }
+            Button(
+                onClick = onFix,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) {
+                Text(actionLabel)
+            }
         }
     }
 }
@@ -227,6 +200,8 @@ fun StandbyBucketChip(
     bucket: StandbyBucket,
     modifier: Modifier = Modifier,
 ) {
+    if (bucket == StandbyBucket.UNKNOWN) return
+
     val container = when (bucket) {
         StandbyBucket.ACTIVE -> MaterialTheme.colorScheme.errorContainer
         StandbyBucket.WORKING_SET -> MaterialTheme.colorScheme.tertiaryContainer

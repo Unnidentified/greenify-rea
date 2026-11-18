@@ -16,10 +16,10 @@ class HibernateTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        val count = AppPreferences(applicationContext).state.value.greenifiedPackages.size
+        val count = AppPreferences(applicationContext).state.value.managedPackages.size
         qsTile?.apply {
             state = if (count > 0) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-            subtitle = if (count > 0) "$count app(s)" else "No apps selected"
+            subtitle = if (count > 0) "$count app(s) managed" else "No apps selected"
             updateTile()
         }
     }
@@ -27,14 +27,14 @@ class HibernateTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val prefs = AppPreferences(applicationContext)
-        val packages = prefs.state.value.greenifiedPackages.toList()
+        val packages = prefs.state.value.managedPackages.toList()
         if (packages.isEmpty()) {
             AutoHibernationScheduler.enqueueImmediate(applicationContext)
             return
         }
         qsTile?.apply {
             state = Tile.STATE_ACTIVE
-            subtitle = "Hibernating..."
+            subtitle = "Starting nap..."
             updateTile()
         }
         scope.launch {
@@ -47,7 +47,7 @@ class HibernateTileService : TileService() {
             qsTile?.apply {
                 state = Tile.STATE_ACTIVE
                 subtitle = if (result.succeeded.isNotEmpty()) {
-                    "Stopped ${result.succeeded.size}"
+                    "Napping: ${result.succeeded.size}"
                 } else {
                     result.backend.displayName
                 }
