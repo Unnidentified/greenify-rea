@@ -31,17 +31,31 @@ enum class StandbyBucket(val label: String) {
     UNKNOWN("Unknown"),
 }
 
+@Serializable
+data class WakeupEvent(
+    val timestampMillis: Long,
+    val cause: String = "Woke from nap",
+)
+
+data class AppWakeupSummary(
+    val totalCount: Int = 0,
+    val last24hCount: Int = 0,
+    val lastWakeupAt: Long? = null,
+    val recentEvents: List<WakeupEvent> = emptyList(),
+)
+
 data class AppEntry(
     val packageName: String,
     val label: String,
     val versionName: String,
     val isSystemApp: Boolean,
     val isStopped: Boolean,
-    val isGreenified: Boolean,
+    val isManaged: Boolean,
     val standbyBucket: StandbyBucket,
     val lastExitReason: String? = null,
     val lastExitTimestamp: Long? = null,
-    val lastHibernatedAt: Long? = null,
+    val lastNappedAt: Long? = null,
+    val wakeupSummary: AppWakeupSummary = AppWakeupSummary(),
 )
 
 @Serializable
@@ -61,7 +75,14 @@ data class EnvironmentStatus(
     val usageAccessGranted: Boolean,
     val notificationsGranted: Boolean,
     val resolvedBackend: ResolvedBackend,
-)
+) {
+    fun isBackendDegraded(preferredMode: WorkingMode): Boolean = when (preferredMode) {
+        WorkingMode.AUTO -> resolvedBackend == ResolvedBackend.NON_ROOT
+        WorkingMode.SHIZUKU -> !shizukuPermissionGranted
+        WorkingMode.ROOT -> !rootAvailable
+        WorkingMode.NON_ROOT -> false
+    }
+}
 
 data class HibernationBatchResult(
     val requested: Int,
@@ -79,5 +100,5 @@ data class BackupSnapshot(
     val shallowHibernation: Boolean,
     val autoHibernationEnabled: Boolean,
     val autoHibernationIntervalMinutes: Int,
-    val greenifiedPackages: List<String>,
+    val managedPackages: List<String>,
 )

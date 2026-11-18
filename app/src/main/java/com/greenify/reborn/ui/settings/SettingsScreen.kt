@@ -114,7 +114,7 @@ fun SettingsScreen(
         }
 
         item {
-            SectionTitle("Hibernation Engine")
+            SectionTitle("Nap Engine")
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
@@ -129,7 +129,7 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
                     ListItem(
-                        headlineContent = { Text("Shallow Hibernation") },
+                        headlineContent = { Text("Shallow Naps") },
                         supportingContent = {
                             Text("Place apps into the Android Restricted standby bucket instead of full force-stop")
                         },
@@ -142,9 +142,9 @@ fun SettingsScreen(
                     )
                     HorizontalDivider()
                     ListItem(
-                        headlineContent = { Text("WorkManager Auto-Hibernation") },
+                        headlineContent = { Text("Scheduled Naps") },
                         supportingContent = {
-                            Text("Periodic background hibernation without AlarmManager wake-locks")
+                            Text("Periodic background naps via WorkManager without AlarmManager wake-locks")
                         },
                         trailingContent = {
                             Switch(
@@ -156,7 +156,7 @@ fun SettingsScreen(
                     if (state.settings.autoHibernationEnabled) {
                         HorizontalDivider()
                         ListItem(
-                            headlineContent = { Text("Auto-Hibernation Interval") },
+                            headlineContent = { Text("Nap Interval") },
                             supportingContent = { Text("Every ${state.settings.autoHibernationIntervalMinutes} minutes") },
                             modifier = Modifier.clickable { showIntervalDialog = true },
                         )
@@ -203,7 +203,7 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Text(
-                        text = "Export or restore your greenified package list and engine settings as a portable local JSON file. You can also add the \"Hibernate Now\" tile to Quick Settings.",
+                        text = "Export or restore your nap list and engine settings as a portable local JSON file. You can also add the \"Hibernate Now\" tile to Quick Settings.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

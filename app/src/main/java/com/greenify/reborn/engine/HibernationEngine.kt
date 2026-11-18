@@ -35,7 +35,7 @@ class HibernationEngine(
                     succeeded = emptyList(),
                     failed = emptyList(),
                     backend = ResolvedBackend.NON_ROOT,
-                    message = "No eligible apps to hibernate.",
+                    message = "No eligible apps ready for a nap.",
                 )
             }
 
@@ -56,7 +56,7 @@ class HibernationEngine(
                     succeeded = emptyList(),
                     failed = sanitized,
                     backend = ResolvedBackend.NON_ROOT,
-                    message = "Shizuku or Root is required for batch hibernation. Open App Info to force-stop manually.",
+                    message = "Shizuku or Root is needed to put apps down for a nap automatically.",
                 )
             }
 
@@ -111,7 +111,7 @@ class HibernationEngine(
                     succeeded = emptyList(),
                     failed = packages,
                     backend = ResolvedBackend.SHIZUKU,
-                    message = "Timed out connecting to Shizuku user service.",
+                    message = "Timed out connecting to Shizuku service.",
                 )
             } else {
                 val failures = service.runCommands(commands.toTypedArray())
@@ -121,7 +121,7 @@ class HibernationEngine(
                         succeeded = packages,
                         failed = emptyList(),
                         backend = ResolvedBackend.SHIZUKU,
-                        message = "Hibernated ${packages.size} app(s) via Shizuku.",
+                        message = "Put ${packages.size} app(s) down for a nap via Shizuku.",
                     )
                 } else {
                     HibernationBatchResult(
@@ -176,7 +176,7 @@ class HibernationEngine(
                 succeeded = packages,
                 failed = emptyList(),
                 backend = ResolvedBackend.ROOT,
-                message = "Hibernated ${packages.size} app(s) via Root.",
+                message = "Put ${packages.size} app(s) down for a nap via Root.",
             )
         } else {
             HibernationBatchResult(

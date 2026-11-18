@@ -16,11 +16,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.Eco
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -43,13 +43,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.greenify.reborn.model.ThemeMode
 import com.greenify.reborn.ui.GreenifyViewModel
-import com.greenify.reborn.ui.analyzer.AnalyzerScreen
 import com.greenify.reborn.ui.home.HibernationScreen
 import com.greenify.reborn.ui.settings.SettingsScreen
 import com.greenify.reborn.ui.theme.GreenifyRebornTheme
@@ -57,8 +54,7 @@ import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
 private enum class TopTab(val label: String, val icon: ImageVector) {
-    HIBERNATION("Hibernation", Icons.Outlined.Eco),
-    ANALYZER("Analyzer", Icons.Outlined.Science),
+    HOME("Home", Icons.Outlined.Bedtime),
     SETTINGS("Settings", Icons.Outlined.Settings),
 }
 
@@ -106,10 +102,11 @@ class MainActivity : ComponentActivity() {
                 themeMode = state.settings.themeMode,
                 dynamicColor = state.settings.dynamicColor,
             ) {
-                GreenifyRebornShell(
+                SiestaShell(
                     viewModel = viewModel,
                     onOpenAppInfo = { pkg -> openSystemAppInfo(pkg) },
                     onOpenUsageAccess = { openUsageAccessSettings() },
+                    onOpenShizukuApp = { openShizukuApp() },
                 )
             }
         }
@@ -139,18 +136,28 @@ class MainActivity : ComponentActivity() {
             viewModel.emitMessage("Unable to open Usage Access settings.")
         }
     }
+
+    private fun openShizukuApp() {
+        val launchIntent = packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+        } else {
+            viewModel.emitMessage("Shizuku app is not installed.")
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun GreenifyRebornShell(
+private fun SiestaShell(
     viewModel: GreenifyViewModel,
     onOpenAppInfo: (String) -> Unit,
     onOpenUsageAccess: () -> Unit,
+    onOpenShizukuApp: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
-    var currentTab by remember { mutableStateOf(TopTab.HIBERNATION) }
+    var currentTab by remember { mutableStateOf(TopTab.HOME) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val notificationLauncher = rememberLauncherForActivityResult(
@@ -209,14 +216,13 @@ private fun GreenifyRebornShell(
                 title = {
                     Text(
                         when (currentTab) {
-                            TopTab.HIBERNATION -> "Siesta"
-                            TopTab.ANALYZER -> "App Analyzer"
+                            TopTab.HOME -> "Siesta"
                             TopTab.SETTINGS -> "Settings"
                         },
                     )
                 },
                 actions = {
-                    if (currentTab != TopTab.SETTINGS) {
+                    if (currentTab == TopTab.HOME) {
                         IconButton(onClick = { viewModel.refreshAll() }) {
                             Icon(
                                 imageVector = Icons.Outlined.Refresh,
@@ -229,7 +235,7 @@ private fun GreenifyRebornShell(
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
-            AnimatedVisibility(visible = currentTab == TopTab.HIBERNATION && state.greenifiedApps.isNotEmpty()) {
+            AnimatedVisibility(visible = currentTab == TopTab.HOME && state.managedApps.isNotEmpty()) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.hibernateAll() },
                     icon = {
@@ -243,7 +249,7 @@ private fun GreenifyRebornShell(
                         }
                     },
                     text = {
-                        Text(if (state.isHibernating) "Hibernating..." else "Hibernate All")
+                        Text(if (state.isHibernating) "Putting to sleep..." else "Hibernate All")
                     },
                 )
             }
@@ -263,24 +269,16 @@ private fun GreenifyRebornShell(
     ) { innerPadding ->
         val contentModifier = Modifier.padding(innerPadding)
         when (currentTab) {
-            TopTab.HIBERNATION -> HibernationScreen(
+            TopTab.HOME -> HibernationScreen(
                 state = state,
                 onQueryChange = viewModel::updateHomeQuery,
-                onRequestShizuku = viewModel::requestShizukuPermission,
-                onOpenSettings = { currentTab = TopTab.SETTINGS },
-                onOpenAnalyzer = { currentTab = TopTab.ANALYZER },
-                onHibernateSingle = { viewModel.hibernateSingle(it.packageName) },
-                onRemoveApp = { viewModel.toggleGreenified(it) },
-                onOpenAppInfo = { onOpenAppInfo(it.packageName) },
-                modifier = contentModifier,
-            )
-
-            TopTab.ANALYZER -> AnalyzerScreen(
-                state = state,
-                onQueryChange = viewModel::updateAnalyzerQuery,
-                onFilterChange = viewModel::updateAnalyzerFilter,
+                onFilterChange = viewModel::updateHomeFilter,
                 onIncludeSystemToggle = viewModel::setIncludeSystemApps,
-                onToggleGreenified = viewModel::toggleGreenified,
+                onRequestShizuku = viewModel::requestShizukuPermission,
+                onOpenShizukuApp = onOpenShizukuApp,
+                onOpenSettings = { currentTab = TopTab.SETTINGS },
+                onHibernateSingle = viewModel::hibernateSingle,
+                onToggleManaged = viewModel::toggleManaged,
                 onOpenAppInfo = { onOpenAppInfo(it.packageName) },
                 modifier = contentModifier,
             )

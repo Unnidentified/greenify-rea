@@ -19,10 +19,19 @@ class HibernationWorker(
 
     override suspend fun doWork(): Result {
         val preferences = AppPreferences(applicationContext)
-        val packages = preferences.state.value.greenifiedPackages.toList()
+        val settings = preferences.state.value
+        val packages = settings.managedPackages.toList()
         if (packages.isEmpty()) return Result.success()
 
         val repository = DeviceAppRepository(applicationContext)
+        val snapshot = repository.loadInstalledApps(
+            managedPackages = settings.managedPackages,
+            lastNappedTimestamps = settings.lastNappedTimestamps,
+            wakeupRecords = settings.wakeupRecords,
+            includeSystemApps = settings.includeSystemApps,
+        )
+        preferences.updateWakeupRecords(snapshot.updatedWakeupRecords)
+
         val engine = HibernationEngine(applicationContext, preferences, repository)
         val batchResult = engine.hibernate(packages)
         return if (batchResult.failed.isEmpty() || batchResult.succeeded.isNotEmpty()) {

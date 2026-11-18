@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.app.ApplicationExitInfo
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
@@ -11,6 +12,9 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
 import androidx.core.content.ContextCompat
+import com.greenify.reborn.engine.WakeupReconcileInput
+import com.greenify.reborn.engine.WakeupRecord
+import com.greenify.reborn.engine.WakeupTracker
 import com.greenify.reborn.model.AppEntry
 import com.greenify.reborn.model.EnvironmentStatus
 import com.greenify.reborn.model.ResolvedBackend
@@ -20,6 +24,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.File
+
+data class LoadedAppsSnapshot(
+    val apps: List<AppEntry>,
+    val updatedWakeupRecords: Map<String, WakeupRecord>,
+)
 
 class DeviceAppRepository(private val context: Context) {
 
@@ -59,10 +68,12 @@ class DeviceAppRepository(private val context: Context) {
         }
 
     suspend fun loadInstalledApps(
-        greenifiedPackages: Set<String>,
-        lastHibernatedTimestamps: Map<String, Long>,
+        managedPackages: Set<String>,
+        lastNappedTimestamps: Map<String, Long>,
+        wakeupRecords: Map<String, WakeupRecord>,
         includeSystemApps: Boolean,
-    ): List<AppEntry> = withContext(Dispatchers.IO) {
+        nowMillis: Long = System.currentTimeMillis(),
+    ): LoadedAppsSnapshot = withContext(Dispatchers.IO) {
         val pm = context.packageManager
         val usageStatsManager = context.getSystemService(UsageStatsManager::class.java)
         val activityManager = context.getSystemService(ActivityManager::class.java)
@@ -74,19 +85,40 @@ class DeviceAppRepository(private val context: Context) {
             @Suppress("DEPRECATION")
             pm.getInstalledApplications(0)
         }
-        val ownExitMap = readOwnOrPermittedExitReasons(activityManager)
 
-        installed.asSequence()
+        val ownExitMap = readOwnOrPermittedExitReasons(activityManager)
+        val earliestNap = lastNappedTimestamps.values.minOrNull()
+        val usageWakeups = if (earliestNap != null && hasUsageStatsPermission()) {
+            queryRecentUsageWakeups(usageStatsManager, earliestNap, nowMillis)
+        } else {
+            emptyMap()
+        }
+
+        val observations = mutableListOf<WakeupReconcileInput>()
+        val rawRows = installed.asSequence()
             .filter { it.packageName != ownPackage && it.packageName != "moe.shizuku.privileged.api" }
             .mapNotNull { info ->
                 val pkg = info.packageName
                 val isSystem = (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
                 val isLaunchable = pm.getLaunchIntentForPackage(pkg) != null
-                if (!includeSystemApps && isSystem && !isLaunchable) {
+                if (!includeSystemApps && isSystem && !isLaunchable && pkg !in managedPackages) {
                     return@mapNotNull null
                 }
+
                 val isStopped = (info.flags and ApplicationInfo.FLAG_STOPPED) != 0
+                val lastNap = lastNappedTimestamps[pkg]
+                val usageWake = usageWakeups[pkg]
+                if (lastNap != null) {
+                    observations += WakeupReconcileInput(
+                        packageName = pkg,
+                        isStopped = isStopped,
+                        lastNappedAt = lastNap,
+                        usageWakeupTimestamp = usageWake?.first,
+                        usageWakeupCause = usageWake?.second,
+                    )
+                }
+
                 val versionName = runCatching {
                     val pkgInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0L))
@@ -106,19 +138,35 @@ class DeviceAppRepository(private val context: Context) {
                     versionName = versionName,
                     isSystemApp = isSystem,
                     isStopped = isStopped,
-                    isGreenified = pkg in greenifiedPackages,
+                    isManaged = pkg in managedPackages,
                     standbyBucket = bucket,
                     lastExitReason = exitInfo?.let(::formatExitReason),
                     lastExitTimestamp = exitInfo?.timestamp,
-                    lastHibernatedAt = lastHibernatedTimestamps[pkg],
+                    lastNappedAt = lastNap,
                 )
             }
-            .sortedWith(
-                compareByDescending<AppEntry> { it.isGreenified }
-                    .thenBy { it.isStopped }
-                    .thenBy { it.label.lowercase() },
-            )
             .toList()
+
+        val reconciledRecords = WakeupTracker.reconcile(
+            existing = wakeupRecords,
+            observations = observations,
+            nowMillis = nowMillis,
+        )
+
+        val entries = rawRows.map { entry ->
+            entry.copy(
+                wakeupSummary = WakeupTracker.summarize(reconciledRecords[entry.packageName], nowMillis),
+            )
+        }.sortedWith(
+            compareByDescending<AppEntry> { it.isManaged }
+                .thenBy { it.isStopped }
+                .thenBy { it.label.lowercase() },
+        )
+
+        LoadedAppsSnapshot(
+            apps = entries,
+            updatedWakeupRecords = reconciledRecords,
+        )
     }
 
     fun hasUsageStatsPermission(): Boolean {
@@ -172,6 +220,34 @@ class DeviceAppRepository(private val context: Context) {
                 else -> StandbyBucket.UNKNOWN
             }
         }.getOrDefault(StandbyBucket.UNKNOWN)
+    }
+
+    private fun queryRecentUsageWakeups(
+        usageStatsManager: UsageStatsManager?,
+        sinceMillis: Long,
+        nowMillis: Long,
+    ): Map<String, Pair<Long, String>> {
+        if (usageStatsManager == null || sinceMillis >= nowMillis) return emptyMap()
+        return runCatching {
+            val events = usageStatsManager.queryEvents(sinceMillis, nowMillis) ?: return emptyMap()
+            val event = UsageEvents.Event()
+            val latestByPackage = HashMap<String, Pair<Long, String>>()
+            while (events.hasNextEvent()) {
+                events.getNextEvent(event)
+                val cause = when (event.eventType) {
+                    UsageEvents.Event.ACTIVITY_RESUMED -> "Foreground launch"
+                    UsageEvents.Event.FOREGROUND_SERVICE_START -> "Foreground service started"
+                    UsageEvents.Event.USER_INTERACTION -> "User interaction"
+                    else -> null
+                } ?: continue
+                val pkg = event.packageName ?: continue
+                val prev = latestByPackage[pkg]
+                if (prev == null || event.timeStamp > prev.first) {
+                    latestByPackage[pkg] = event.timeStamp to cause
+                }
+            }
+            latestByPackage
+        }.getOrDefault(emptyMap())
     }
 
     private fun readOwnOrPermittedExitReasons(
