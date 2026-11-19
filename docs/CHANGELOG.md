@@ -5,6 +5,25 @@ All notable changes to **Greenify (`greenify-rea`)** will be documented in this 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0-beta.2] - 2026-11-19
+
+### Added
+- **Composable Stackable Filters:** Replaced mutually exclusive tabs with stackable filter pills (**User**, **System**, **Awake**, **Napping**, **In Recents**, **Wake-ups**, **Configured**) with smooth edge fading on horizontal borders.
+- **Batch Selector Mode:** Long-press any app or tap the checklist icon to multi-select apps, toggle **Select All**, and run batch hibernation, policy overrides, AppOps cut-offs, category wake-up cut-offs, and combined wake logs without any FAB.
+- **Full Per-App & Batch Cut-offs:** Added AppOps wake-up cut-offs (`RUN_ANY_IN_BACKGROUND`, `WAKE_LOCK`, `START_FOREGROUND`, `SCHEDULE_EXACT_ALARM`) and individual component/service/receiver disable-and-restore controls in the app detail sheet.
+- **Recents & Active Audio Guard:** Protects apps open in Android Recents (`dumpsys activity recents`) and active media players (`dumpsys media_session`, `dumpsys audio`, `AudioManager`), configurable globally and per app.
+- **Raw Engine Logs Viewer:** Added `AppLogStore` and an in-app Settings sheet (`Raw Engine Logs`) with level badges, command/exit detail cards, copy, and clear actions.
+- **Progressive Acrylic Status Bar:** Added an AGSL/RenderEffect progressive blur and subtle light-reactive frosted grain beneath the transparent status bar with smooth meniscus transitions and zero pre-entry color haloes.
+- **Flowy In-Window Bottom Sheets:** Replaced separate-window `ModalBottomSheet` dialogs with `FlowyBottomSheet` overlays running at native display refresh rate with spring open/close physics, swipe/nested-scroll dismiss, and fully transparent edge-to-edge system bars.
+
+### Changed
+- **Defaults:** Enabled **Follow System** theme, **Dynamic Accent (Monet)**, and **Force Max Refresh Rate** by default on fresh installs.
+- **Home Visual Polish & Icon:** Updated app icon, adaptive monochrome icon, and Home bottom bar tab icon to the new leaf vector (`leaf-svgrepo-com.svg`); updated Home subtitle to `N = awake + napping`; removed middle pull-to-refresh overlay spinner in favor of the top-right spinning refresh icon; improved deactivated switch visibility; centered README badge layout.
+- **CPU & RAM Optimization:** Downsampled and byte-budgeted `AppIconCache` (6 MiB cap + `onTrimMemory`), batch-queried launchable packages, eliminated per-frame `drawGlassPill` native allocations, removed unconditional idle Choreographer/sensor render loops (`~0.3%` settled idle CPU, `0` idle frames), parallelized app detail loading without AppOps height jumps, and moved log persistence off-thread.
+
+### Fixed
+- Eliminated overscroll bounce jitter on pull-to-refresh and scroll-to-top rebound, AppOps loading flash/button jumps on fast sheet scrolls, and opaque navigation-bar artifacts behind sheets.
+
 ## [0.2.0-beta.1] - 2026-11-19
 
 ### Added

@@ -1,7 +1,17 @@
 package com.greenify.reborn.ui.home
 
 import android.text.format.DateUtils
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,253 +23,492 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.CheckBox
+import androidx.compose.material.icons.outlined.CheckBoxOutlineBlank
+import androidx.compose.material.icons.outlined.Checklist
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.SelectAll
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import com.greenify.reborn.model.AppEntry
-import com.greenify.reborn.model.HibernationEvent
-import com.greenify.reborn.model.StandbyBucket
-import com.greenify.reborn.ui.HomeFilter
+import com.greenify.reborn.model.AppFilterChip
+import com.greenify.reborn.model.HibernationStrategy
 import com.greenify.reborn.ui.MainUiState
 import com.greenify.reborn.ui.components.AllSetBackendCard
 import com.greenify.reborn.ui.components.AppIconImage
 import com.greenify.reborn.ui.components.DegradedBackendCard
 import com.greenify.reborn.ui.components.MiuixSearchBar
 import com.greenify.reborn.ui.components.StandbyBucketChip
+import com.greenify.reborn.ui.components.fadingHorizontalEdges
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HibernationScreen(
     state: MainUiState,
-    onRefresh: () -> Unit,
+    onRefresh: (userTriggered: Boolean) -> Unit,
     onQueryChange: (String) -> Unit,
-    onFilterChange: (HomeFilter) -> Unit,
-    onIncludeSystemToggle: (Boolean) -> Unit,
+    onToggleFilter: (AppFilterChip) -> Unit,
+    onEnterBatchMode: (initialPackage: String?) -> Unit,
+    onExitBatchMode: () -> Unit,
+    onToggleBatchSelection: (String) -> Unit,
+    onToggleSelectAllFiltered: () -> Unit,
+    onHibernatePackages: (List<String>, ignoreProtection: Boolean) -> Unit,
+    onInspectPackage: (String) -> Unit,
+    onOpenBatchSheet: () -> Unit,
     onRequestShizuku: () -> Unit,
     onOpenShizukuApp: () -> Unit,
     onOpenSettings: () -> Unit,
-    onHibernateSingle: (AppEntry) -> Unit,
-    onToggleManaged: (AppEntry) -> Unit,
-    onOpenAppInfo: (AppEntry) -> Unit,
+    onEmitMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var inspectedApp by remember { mutableStateOf<AppEntry?>(null) }
-    val managedCount = state.managedApps.size
-    val awakeCount = state.awakeManagedCount
     val isDegraded = state.environment.isBackendDegraded(state.settings.workingMode)
+    val filteredApps = remember(state.allApps, state.activeFilters, state.homeQuery) {
+        MainUiState.filterApps(state.allApps, state.activeFilters, state.homeQuery)
+    }
+    val awakeCount = remember(filteredApps) { filteredApps.count { !it.isStopped } }
+    val nappingCount = filteredApps.size - awakeCount
+    val selectedApps = remember(state.allApps, state.selectedPackages) {
+        state.allApps.filter { it.packageName in state.selectedPackages }
+    }
 
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 148.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text = "greenify-rea",
-                        style = MaterialTheme.typography.displaySmall,
-                        color = MaterialTheme.colorScheme.onBackground,
-                    )
-                    val noun = if (managedCount == 1) "app" else "apps"
-                    Text(
-                        text = "$managedCount $noun managed, $awakeCount awake",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+    val pullToRefreshState = remember {
+        val anim = Animatable(0f, visibilityThreshold = 0.0005f)
+        val settleSpec = spring<Float>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+            visibilityThreshold = 0.0005f,
+        )
+        object : PullToRefreshState {
+            override val distanceFraction: Float get() = anim.value
+            override val isAnimating: Boolean get() = anim.isRunning
+            override suspend fun animateToThreshold() {
+                anim.animateTo(1f, settleSpec)
+            }
+            override suspend fun animateToHidden() {
+                anim.animateTo(0f, settleSpec)
+            }
+            override suspend fun snapTo(targetValue: Float) {
+                anim.snapTo(targetValue)
+            }
+        }
+    }
+    val listState = rememberLazyListState()
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val density = LocalDensity.current
+    val pullMaxPx = with(density) { 48.dp.toPx() }
+    val bottomBounceMaxPx = with(density) { 36.dp.toPx() }
+
+    // Single-spring boundary bounce & direct 1:1 pull-to-refresh (zero phase-lag jitter)
+    val bottomBounceAnim = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var bottomSettleJob by remember { mutableStateOf<Job?>(null) }
+
+    val bounceNestedScroll = remember(listState, bottomBounceMaxPx) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput && bottomBounceAnim.value < 0f && available.y > 0f) {
+                    bottomSettleJob?.cancel()
+                    val current = bottomBounceAnim.value
+                    val consumed = available.y.coerceAtMost(-current)
+                    val next = (current + consumed).coerceAtMost(0f)
+                    scope.launch { bottomBounceAnim.snapTo(next) }
+                    return Offset(0f, consumed)
                 }
+                return Offset.Zero
+            }
 
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerLow,
-                ) {
-                    IconButton(onClick = onRefresh) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = "Refresh app list",
-                            tint = MaterialTheme.colorScheme.onSurface,
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (source == NestedScrollSource.UserInput && !listState.canScrollForward && available.y < 0f) {
+                    bottomSettleJob?.cancel()
+                    val next = (bottomBounceAnim.value + available.y * 0.28f).coerceIn(-bottomBounceMaxPx, 0f)
+                    scope.launch { bottomBounceAnim.snapTo(next) }
+                    return Offset(0f, available.y)
+                }
+                return Offset.Zero
+            }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
+                if (bottomBounceAnim.value != 0f) {
+                    bottomSettleJob?.cancel()
+                    bottomSettleJob = scope.launch {
+                        bottomBounceAnim.animateTo(
+                            targetValue = 0f,
+                            animationSpec = spring(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            ),
                         )
                     }
                 }
+                return Velocity.Zero
             }
         }
+    }
 
-        item {
-            if (isDegraded) {
-                DegradedBackendCard(
-                    environment = state.environment,
-                    preferredMode = state.settings.workingMode,
-                    onRequestShizuku = onRequestShizuku,
-                    onOpenShizukuApp = onOpenShizukuApp,
-                    onOpenSettings = onOpenSettings,
-                )
-            } else {
-                AllSetBackendCard(
-                    environment = state.environment,
-                    onClick = onOpenSettings,
-                )
-            }
-        }
-
-        item {
-            MiuixSearchBar(
-                query = state.homeQuery,
-                onQueryChange = onQueryChange,
-                placeholder = "Search apps or packages...",
-            )
-        }
-
-        item {
-            Row(
+    PullToRefreshBox(
+        isRefreshing = state.isRefreshing,
+        onRefresh = { onRefresh(true) },
+        state = pullToRefreshState,
+        modifier = modifier.fillMaxSize(),
+        indicator = {},
+    ) {
+        CompositionLocalProvider(LocalOverscrollFactory provides null) {
+            LazyColumn(
+                state = listState,
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .fillMaxSize()
+                    .nestedScroll(bounceNestedScroll)
+                    .graphicsLayer {
+                        val d = pullToRefreshState.distanceFraction.coerceIn(0f, 1.5f)
+                        val pullPx = (d / (1f + d * 0.35f)) * pullMaxPx
+                        translationY = pullPx + bottomBounceAnim.value
+                    },
+                contentPadding = PaddingValues(
+                    top = statusBarTop + 22.dp,
+                    bottom = 128.dp,
+                ),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                HomeFilter.entries.forEach { filter ->
-                    MiuixFilterPill(
-                        label = filter.label,
-                        selected = state.homeFilter == filter,
-                        onClick = { onFilterChange(filter) },
-                    )
-                }
-                if (state.homeFilter != HomeFilter.MANAGED) {
-                    MiuixFilterPill(
-                        label = "All System",
-                        selected = state.settings.includeSystemApps,
-                        onClick = { onIncludeSystemToggle(!state.settings.includeSystemApps) },
-                    )
-                }
-            }
-        }
-
-        if (state.isLoadingApps) {
-            item {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 40.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-        } else if (state.filteredApps.isEmpty()) {
-            item {
-                EmptyStateCard(
-                    filter = state.homeFilter,
-                    hasQuery = state.homeQuery.isNotBlank(),
-                    onBrowseAllApps = { onFilterChange(HomeFilter.ALL_APPS) },
-                )
-            }
-        } else {
-            items(
-                items = state.filteredApps,
-                key = { it.packageName },
-            ) { app ->
-                AppListRow(
-                    app = app,
-                    showManagedBadge = state.homeFilter != HomeFilter.MANAGED && app.isManaged,
-                    onTapHibernate = { onHibernateSingle(app) },
-                    onLongPressDetails = { inspectedApp = app },
-                )
-            }
-
-            if (state.homeFilter == HomeFilter.MANAGED && state.settings.history.isNotEmpty()) {
                 item {
-                    Text(
-                        text = "Recent Naps",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 6.dp, top = 6.dp),
-                    )
-                }
-                item {
-                    val events = state.settings.history.take(5)
-                    Surface(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        color = MaterialTheme.colorScheme.surfaceContainerLow,
-                    ) {
-                        Column {
-                            events.forEachIndexed { index, event ->
-                                HistoryEventRow(event = event)
-                                if (index < events.lastIndex) {
-                                    HorizontalDivider(
-                                        modifier = Modifier.padding(horizontal = 16.dp),
-                                        thickness = 0.5.dp,
-                                        color = MaterialTheme.colorScheme.outlineVariant,
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        if (state.isBatchMode) {
+                            BatchHeaderBar(
+                                selectedCount = state.selectedPackages.size,
+                                totalFilteredCount = filteredApps.size,
+                                allFilteredSelected = filteredApps.isNotEmpty() &&
+                                    filteredApps.all { it.packageName in state.selectedPackages },
+                                isHibernating = state.isHibernating,
+                                onToggleSelectAll = onToggleSelectAllFiltered,
+                                onOpenBatchAdjustments = {
+                                    if (selectedApps.isEmpty()) {
+                                        onEmitMessage("Select at least one app first.")
+                                    } else {
+                                        onOpenBatchSheet()
+                                    }
+                                },
+                                onHibernateSelected = {
+                                    if (selectedApps.isEmpty()) {
+                                        onEmitMessage("Select at least one app first.")
+                                    } else {
+                                        onHibernatePackages(selectedApps.map { it.packageName }, false)
+                                    }
+                                },
+                                onExitBatchMode = onExitBatchMode,
+                            )
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        text = "greenify-rea",
+                                        style = MaterialTheme.typography.displaySmall,
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                    )
+                                    Text(
+                                        text = "${filteredApps.size} = $awakeCount awake + $nappingCount napping",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    ) {
+                                        IconButton(onClick = { onEnterBatchMode(null) }) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Checklist,
+                                                contentDescription = "Batch select apps",
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                            )
+                                        }
+                                    }
+                                    Surface(
+                                        shape = CircleShape,
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                    ) {
+                                        RefreshActionButton(
+                                            isRefreshing = state.isRefreshing,
+                                            pullFraction = { pullToRefreshState.distanceFraction },
+                                            onClick = { onRefresh(true) },
+                                        )
+                                    }
+                                }
                             }
+                        }
+                    }
+                }
+
+                item {
+                    Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                        AnimatedVisibility(visible = !state.isBatchMode) {
+                            if (isDegraded) {
+                                DegradedBackendCard(
+                                    environment = state.environment,
+                                    preferredMode = state.settings.workingMode,
+                                    onRequestShizuku = onRequestShizuku,
+                                    onOpenShizukuApp = onOpenShizukuApp,
+                                    onOpenSettings = onOpenSettings,
+                                )
+                            } else {
+                                AllSetBackendCard(
+                                    environment = state.environment,
+                                    onClick = onOpenSettings,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    MiuixSearchBar(
+                        query = state.homeQuery,
+                        onQueryChange = onQueryChange,
+                        placeholder = "Search apps or packages...",
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+
+                // Stackable composable filter chips fading cleanly on screen borders
+                item {
+                    val filterScrollState = rememberScrollState()
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .fadingHorizontalEdges(filterScrollState, fadeWidth = 26.dp)
+                            .horizontalScroll(filterScrollState),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Spacer(Modifier.width(8.dp))
+                        AppFilterChip.entries.forEach { chip ->
+                            MiuixFilterPill(
+                                label = chip.label,
+                                selected = chip in state.activeFilters,
+                                onClick = { onToggleFilter(chip) },
+                            )
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                }
+
+                if (state.isLoadingApps) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 40.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+                } else if (filteredApps.isEmpty()) {
+                    item {
+                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            EmptyStateCard(
+                                hasQuery = state.homeQuery.isNotBlank(),
+                                onShowUserAndAwake = {
+                                    if (AppFilterChip.USER !in state.activeFilters) {
+                                        onToggleFilter(AppFilterChip.USER)
+                                    }
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    items(
+                        items = filteredApps,
+                        key = { it.packageName },
+                        contentType = { "app_row" },
+                    ) { app ->
+                        val isSelected = app.packageName in state.selectedPackages
+                        Box(modifier = Modifier.padding(horizontal = 16.dp)) {
+                            AppListRow(
+                                app = app,
+                                isBatchMode = state.isBatchMode,
+                                isSelected = isSelected,
+                                geekExtrasEnabled = state.settings.geekExtrasEnabled,
+                                onSingleTap = {
+                                    if (state.isBatchMode) {
+                                        onToggleBatchSelection(app.packageName)
+                                    } else {
+                                        onInspectPackage(app.packageName)
+                                    }
+                                },
+                                onLongPress = {
+                                    if (!state.isBatchMode) {
+                                        onEnterBatchMode(app.packageName)
+                                    } else {
+                                        onToggleBatchSelection(app.packageName)
+                                    }
+                                },
+                            )
                         }
                     }
                 }
             }
         }
     }
+}
 
-    inspectedApp?.let { selected ->
-        val currentApp = state.allApps.find { it.packageName == selected.packageName } ?: selected
-        ModalBottomSheet(
-            onDismissRequest = { inspectedApp = null },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+@Composable
+private fun BatchHeaderBar(
+    selectedCount: Int,
+    totalFilteredCount: Int,
+    allFilteredSelected: Boolean,
+    isHibernating: Boolean,
+    onToggleSelectAll: () -> Unit,
+    onOpenBatchAdjustments: () -> Unit,
+    onHibernateSelected: () -> Unit,
+    onExitBatchMode: () -> Unit,
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            AppDetailSheet(
-                app = currentApp,
-                onHibernate = {
-                    onHibernateSingle(currentApp)
-                    inspectedApp = null
-                },
-                onToggleManaged = { onToggleManaged(currentApp) },
-                onOpenAppInfo = { onOpenAppInfo(currentApp) },
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    IconButton(onClick = onExitBatchMode, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Exit batch selection")
+                    }
+                    Column {
+                        Text(
+                            text = "$selectedCount selected",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = "$totalFilteredCount visible in filter",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                // Select All ONLY exists inside batch selector mode
+                OutlinedButton(
+                    onClick = onToggleSelectAll,
+                    shape = RoundedCornerShape(12.dp),
+                ) {
+                    Icon(Icons.Outlined.SelectAll, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (allFilteredSelected) "Deselect All" else "Select All")
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FilledTonalButton(
+                    onClick = onOpenBatchAdjustments,
+                    enabled = selectedCount > 0,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Icon(Icons.Outlined.Tune, contentDescription = null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Adjust ($selectedCount)")
+                }
+                Button(
+                    onClick = onHibernateSelected,
+                    enabled = selectedCount > 0 && !isHibernating,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    if (isHibernating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onPrimary,
+                        )
+                    } else {
+                        Icon(Icons.Outlined.Bedtime, contentDescription = null, modifier = Modifier.size(17.dp))
+                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text("Hibernate")
+                }
+            }
         }
     }
 }
@@ -290,16 +539,15 @@ private fun MiuixFilterPill(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
+            modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp),
         )
     }
 }
 
 @Composable
 private fun EmptyStateCard(
-    filter: HomeFilter,
     hasQuery: Boolean,
-    onBrowseAllApps: () -> Unit,
+    onShowUserAndAwake: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -320,33 +568,27 @@ private fun EmptyStateCard(
                 modifier = Modifier.size(36.dp),
             )
             Text(
-                text = when {
-                    hasQuery -> "No matching apps found"
-                    filter == HomeFilter.MANAGED -> "No apps in your nap list yet"
-                    filter == HomeFilter.AWAKE -> "All discovered apps are resting"
-                    else -> "No apps discovered"
-                },
+                text = if (hasQuery) "No matching apps found" else "No apps match active filters",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
             )
             Text(
-                text = when {
-                    hasQuery -> "Try a different app name or package search."
-                    filter == HomeFilter.MANAGED ->
-                        "Switch to All apps to browse installed apps, tap any row to put it down for a nap, or long-press for wake-up diagnostics."
-                    else -> "Try adjusting your filters."
+                text = if (hasQuery) {
+                    "Try a different app name or package search."
+                } else {
+                    "Tap filter pills above to adjust which app states are shown. Tap any app once for adjustments & wake logs, or long-press for batch mode."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            if (filter == HomeFilter.MANAGED && !hasQuery) {
+            if (!hasQuery) {
                 FilledTonalButton(
-                    onClick = onBrowseAllApps,
+                    onClick = onShowUserAndAwake,
                     shape = RoundedCornerShape(14.dp),
                 ) {
-                    Text("Browse All apps")
+                    Text("Include User Apps")
                 }
             }
         }
@@ -357,9 +599,11 @@ private fun EmptyStateCard(
 @Composable
 private fun AppListRow(
     app: AppEntry,
-    showManagedBadge: Boolean,
-    onTapHibernate: () -> Unit,
-    onLongPressDetails: () -> Unit,
+    isBatchMode: Boolean,
+    isSelected: Boolean,
+    geekExtrasEnabled: Boolean,
+    onSingleTap: () -> Unit,
+    onLongPress: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
 
@@ -368,16 +612,25 @@ private fun AppListRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
             .combinedClickable(
-                onClick = onTapHibernate,
-                onClickLabel = "Put ${app.label} down for a nap",
+                onClick = onSingleTap,
+                onClickLabel = if (isBatchMode) "Select ${app.label}" else "Open ${app.label} settings",
                 onLongClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onLongPressDetails()
+                    onLongPress()
                 },
-                onLongClickLabel = "Inspect ${app.label} details",
+                onLongClickLabel = "Enter batch selection",
             ),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        color = if (isSelected) {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerLow
+        },
+        border = if (isSelected) {
+            BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+        } else {
+            null
+        },
     ) {
         Row(
             modifier = Modifier
@@ -386,6 +639,23 @@ private fun AppListRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
+            if (isBatchMode) {
+                Icon(
+                    imageVector = if (isSelected) {
+                        Icons.Outlined.CheckBox
+                    } else {
+                        Icons.Outlined.CheckBoxOutlineBlank
+                    },
+                    contentDescription = null,
+                    tint = if (isSelected) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+
             AppIconImage(packageName = app.packageName, contentDescription = app.label)
 
             Column(
@@ -400,7 +670,11 @@ private fun AppListRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = app.packageName,
+                    text = if (geekExtrasEnabled) {
+                        "${app.packageName} • uid ${app.uid} • sdk ${app.targetSdk}"
+                    } else {
+                        app.packageName
+                    },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -408,7 +682,7 @@ private fun AppListRow(
                 )
                 FlowRow(
                     modifier = Modifier.padding(top = 2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     itemVerticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -422,36 +696,56 @@ private fun AppListRow(
                         },
                         fontWeight = FontWeight.SemiBold,
                     )
-                    if (showManagedBadge) {
-                        Surface(
-                            shape = RoundedCornerShape(50),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                        ) {
-                            Text(
-                                text = "Managed",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                maxLines = 1,
-                                softWrap = false,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
-                            )
-                        }
+                    if (app.isPlayingAudio) {
+                        StatusTagPill(
+                            text = "Playing Audio",
+                            bg = MaterialTheme.colorScheme.tertiaryContainer,
+                            fg = MaterialTheme.colorScheme.onTertiaryContainer,
+                        )
+                    } else if (app.inRecents) {
+                        StatusTagPill(
+                            text = "In Recents",
+                            bg = MaterialTheme.colorScheme.secondaryContainer,
+                            fg = MaterialTheme.colorScheme.onSecondaryContainer,
+                        )
+                    }
+                    if (app.policy.includeInScheduledNaps) {
+                        StatusTagPill(
+                            text = "Auto-Nap",
+                            bg = MaterialTheme.colorScheme.primaryContainer,
+                            fg = MaterialTheme.colorScheme.onPrimaryContainer,
+                        )
+                    }
+                    if (app.policy.strategy == HibernationStrategy.EXEMPT) {
+                        StatusTagPill(
+                            text = "Exempt",
+                            bg = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            fg = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                     StandbyBucketChip(bucket = app.standbyBucket)
                 }
+
                 val wakeup = app.wakeupSummary
-                val activityLine = when {
-                    wakeup.lastWakeupAt != null -> {
-                        val rel = DateUtils.getRelativeTimeSpanString(wakeup.lastWakeupAt)
-                        val countSuffix = if (wakeup.totalCount > 1) " • ${wakeup.totalCount}×" else ""
-                        "${app.label} woke up $rel$countSuffix"
+                val activityLine = remember(
+                    wakeup.lastWakeupAt,
+                    wakeup.totalCount,
+                    app.lastNappedAt,
+                    app.lastExitReason,
+                ) {
+                    when {
+                        wakeup.lastWakeupAt != null -> {
+                            val rel = DateUtils.getRelativeTimeSpanString(wakeup.lastWakeupAt)
+                            val countSuffix = if (wakeup.totalCount > 1) " • ${wakeup.totalCount}×" else ""
+                            "Woke up $rel$countSuffix"
+                        }
+                        app.lastNappedAt != null -> {
+                            val rel = DateUtils.getRelativeTimeSpanString(app.lastNappedAt)
+                            "Last napped $rel"
+                        }
+                        app.lastExitReason != null -> "Last exit: ${app.lastExitReason}"
+                        else -> null
                     }
-                    app.lastNappedAt != null -> {
-                        val rel = DateUtils.getRelativeTimeSpanString(app.lastNappedAt)
-                        "Put down for a nap $rel"
-                    }
-                    app.lastExitReason != null -> "Last exit: ${app.lastExitReason}"
-                    else -> null
                 }
                 if (activityLine != null) {
                     Text(
@@ -468,211 +762,67 @@ private fun AppListRow(
 }
 
 @Composable
-private fun AppDetailSheet(
-    app: AppEntry,
-    onHibernate: () -> Unit,
-    onToggleManaged: () -> Unit,
-    onOpenAppInfo: () -> Unit,
+private fun StatusTagPill(
+    text: String,
+    bg: androidx.compose.ui.graphics.Color,
+    fg: androidx.compose.ui.graphics.Color,
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            AppIconImage(packageName = app.packageName, contentDescription = app.label)
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = app.label,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    text = "${app.packageName} • v${app.versionName}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-
-        // Grouped Miuix info card
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                DiagnosticLine(label = "State", value = if (app.isStopped) "Napping" else "Awake")
-                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                DiagnosticLine(
-                    label = "App type",
-                    value = if (app.isSystemApp) "System package" else "User package",
-                )
-                if (app.standbyBucket != StandbyBucket.UNKNOWN) {
-                    HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "Standby bucket",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        StandbyBucketChip(bucket = app.standbyBucket)
-                    }
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
-        ) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "Recent Wake-ups",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                val wakeup = app.wakeupSummary
-                if (wakeup.totalCount == 0) {
-                    Text(
-                        text = "No wake-ups recorded since last nap.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    DiagnosticLine(
-                        label = "Total recorded",
-                        value = "${wakeup.totalCount} (${wakeup.last24hCount} in last 24h)",
-                    )
-                    wakeup.recentEvents.take(3).forEach { event ->
-                        val rel = DateUtils.getRelativeTimeSpanString(event.timestampMillis)
-                        DiagnosticLine(label = event.cause, value = rel.toString())
-                    }
-                }
-
-                HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
-
-                Text(
-                    text = "Exit Diagnostics",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                if (app.lastExitReason != null) {
-                    val whenText = app.lastExitTimestamp?.let {
-                        DateUtils.getRelativeTimeSpanString(it).toString()
-                    }.orEmpty()
-                    DiagnosticLine(label = app.lastExitReason, value = whenText)
-                } else {
-                    Text(
-                        text = "No recent exit records available.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp, bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Button(
-                onClick = onHibernate,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-            ) {
-                Icon(Icons.Outlined.Bedtime, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Put down for a nap")
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                FilledTonalButton(
-                    onClick = onToggleManaged,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Text(if (app.isManaged) "Remove from list" else "Add to nap list")
-                }
-                OutlinedButton(
-                    onClick = onOpenAppInfo,
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(16.dp),
-                ) {
-                    Icon(
-                        Icons.AutoMirrored.Outlined.OpenInNew,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text("App Info")
-                }
-            }
-        }
-        Spacer(Modifier.height(4.dp))
-    }
-}
-
-@Composable
-private fun DiagnosticLine(label: String, value: String) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = bg,
     ) {
         Text(
-            text = label,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = FontWeight.Medium,
-        )
-    }
-}
-
-@Composable
-private fun HistoryEventRow(event: HibernationEvent) {
-    val rel = DateUtils.getRelativeTimeSpanString(event.timestampMillis)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text(
-                text = "Put ${event.succeededCount}/${event.packageCount} app(s) down for a nap",
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Medium,
-            )
-            Text(
-                text = "${event.backendUsed} • ${if (event.shallowMode) "Shallow" else "Force-stop"}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Text(
-            text = rel.toString(),
+            text = text,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            color = fg,
+            maxLines = 1,
+            softWrap = false,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
+    }
+}
+
+@Composable
+private fun RefreshActionButton(
+    isRefreshing: Boolean,
+    pullFraction: () -> Float,
+    onClick: () -> Unit,
+) {
+    // Run the 165Hz spin loop strictly while isRefreshing is true; 0 callbacks at idle
+    val spinAnim = remember { Animatable(0f) }
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            spinAnim.snapTo(0f)
+            spinAnim.animateTo(
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 750, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart,
+                ),
+            )
+        } else {
+            spinAnim.snapTo(0f)
+        }
+    }
+
+    val pull = pullFraction()
+    val tintColor = if (isRefreshing || pull > 0.1f) {
+        MaterialTheme.colorScheme.primary
+    } else {
+        MaterialTheme.colorScheme.onSurface
+    }
+    IconButton(onClick = onClick) {
+        Icon(
+            imageVector = Icons.Outlined.Refresh,
+            contentDescription = "Refresh app list",
+            tint = tintColor,
+            modifier = Modifier.graphicsLayer {
+                rotationZ = if (isRefreshing) {
+                    spinAnim.value
+                } else {
+                    (pullFraction().coerceIn(0f, 1.5f) * 180f)
+                }
+            },
         )
     }
 }

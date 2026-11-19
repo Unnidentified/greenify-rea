@@ -16,10 +16,15 @@ class HibernateTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        val count = AppPreferences(applicationContext).state.value.managedPackages.size
+        val settings = AppPreferences(applicationContext).state.value
+        val count = settings.managedPackages.size
         qsTile?.apply {
-            state = if (count > 0) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-            subtitle = if (count > 0) "$count app(s) managed" else "No apps selected"
+            state = if (count > 0 || settings.autoHibernateAllUserApps) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+            subtitle = when {
+                settings.autoHibernateAllUserApps -> "All user apps"
+                count > 0 -> "$count scheduled"
+                else -> "Tap to nap"
+            }
             updateTile()
         }
     }
@@ -27,8 +32,10 @@ class HibernateTileService : TileService() {
     override fun onClick() {
         super.onClick()
         val prefs = AppPreferences(applicationContext)
-        val packages = prefs.state.value.managedPackages.toList()
-        if (packages.isEmpty()) {
+        val settings = prefs.state.value
+        val repository = DeviceAppRepository(applicationContext)
+        val packages = settings.managedPackages.toList()
+        if (packages.isEmpty() && !settings.autoHibernateAllUserApps) {
             AutoHibernationScheduler.enqueueImmediate(applicationContext)
             return
         }
@@ -41,9 +48,19 @@ class HibernateTileService : TileService() {
             val engine = HibernationEngine(
                 context = applicationContext,
                 preferences = prefs,
-                repository = DeviceAppRepository(applicationContext),
+                repository = repository,
             )
-            val result = engine.hibernate(packages)
+            val targetPackages = if (packages.isNotEmpty()) {
+                packages
+            } else {
+                repository.loadInstalledApps(
+                    perAppPolicies = settings.perAppPolicies,
+                    lastNappedTimestamps = settings.lastNappedTimestamps,
+                    wakeupRecords = settings.wakeupRecords,
+                    includeSystemApps = false,
+                ).apps.filter { !it.isSystemApp }.map { it.packageName }
+            }
+            val result = engine.hibernate(targetPackages)
             qsTile?.apply {
                 state = Tile.STATE_ACTIVE
                 subtitle = if (result.succeeded.isNotEmpty()) {
