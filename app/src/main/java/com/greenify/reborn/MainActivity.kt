@@ -14,29 +14,20 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Bedtime
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExtendedFloatingActionButton
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -46,25 +37,31 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.greenify.reborn.model.ThemeMode
+import com.greenify.reborn.model.ResolvedBackend
 import com.greenify.reborn.ui.GreenifyViewModel
+import com.greenify.reborn.ui.components.AppIconCache
+import com.greenify.reborn.ui.components.FlowyBottomSheet
 import com.greenify.reborn.ui.components.LiquidBottomTabs
 import com.greenify.reborn.ui.components.LiquidTabItem
+import com.greenify.reborn.ui.components.ProgressiveAcrylicStatusBar
 import com.greenify.reborn.ui.components.recordLayerBackdrop
 import com.greenify.reborn.ui.components.rememberLayerBackdrop
+import com.greenify.reborn.ui.home.AppDetailSheet
+import com.greenify.reborn.ui.home.BatchAdjustmentsSheet
 import com.greenify.reborn.ui.home.HibernationScreen
+import com.greenify.reborn.ui.settings.RawLogsSheet
 import com.greenify.reborn.ui.settings.SettingsScreen
 import com.greenify.reborn.ui.theme.GreenifyRebornTheme
 import kotlinx.coroutines.launch
 import rikka.shizuku.Shizuku
 
-private enum class TopTab(val label: String, val icon: ImageVector) {
-    HOME("Home", Icons.Outlined.Bedtime),
-    SETTINGS("Settings", Icons.Outlined.Settings),
+private enum class TopTab(val label: String) {
+    HOME("Home"),
+    SETTINGS("Settings"),
 }
 
 class MainActivity : ComponentActivity() {
@@ -92,7 +89,12 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
+        window.isStatusBarContrastEnforced = false
+        window.isNavigationBarContrastEnforced = false
         runCatching { Shizuku.addBinderReceivedListenerSticky(shizukuBinderReceivedListener) }
         runCatching { Shizuku.addBinderDeadListener(shizukuBinderDeadListener) }
         runCatching { Shizuku.addRequestPermissionResultListener(shizukuPermissionListener) }
@@ -100,17 +102,30 @@ class MainActivity : ComponentActivity() {
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
             val darkTheme = state.settings.themeMode.resolveDarkTheme(isSystemInDarkTheme())
+            LaunchedEffect(state.settings.forceMaxRefreshRate) {
+                applyDisplayRefreshRate(state.settings.forceMaxRefreshRate)
+            }
             DisposableEffect(darkTheme) {
                 enableEdgeToEdge(
-                    statusBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT,
-                        android.graphics.Color.TRANSPARENT,
-                    ) { darkTheme },
-                    navigationBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.TRANSPARENT,
-                        android.graphics.Color.TRANSPARENT,
-                    ) { darkTheme },
+                    statusBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT,
+                        )
+                    },
+                    navigationBarStyle = if (darkTheme) {
+                        SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                    } else {
+                        SystemBarStyle.light(
+                            android.graphics.Color.TRANSPARENT,
+                            android.graphics.Color.TRANSPARENT,
+                        )
+                    },
                 )
+                window.isStatusBarContrastEnforced = false
+                window.isNavigationBarContrastEnforced = false
                 onDispose {}
             }
             GreenifyRebornTheme(
@@ -130,7 +145,38 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        viewModel.refreshAll()
+        applyDisplayRefreshRate(viewModel.uiState.value.settings.forceMaxRefreshRate)
+        viewModel.refreshAll(force = false)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        AppIconCache.trim(level)
+    }
+
+    private fun applyDisplayRefreshRate(forceMax: Boolean) {
+        runCatching {
+            val currentDisplay = display ?: return
+            val currentMode = currentDisplay.mode
+            val attrs = window.attributes
+            if (forceMax) {
+                val bestMode = currentDisplay.supportedModes
+                    .filter {
+                        it.physicalWidth == currentMode.physicalWidth &&
+                            it.physicalHeight == currentMode.physicalHeight
+                    }
+                    .maxByOrNull { it.refreshRate }
+                    ?: currentDisplay.supportedModes.maxByOrNull { it.refreshRate }
+                if (bestMode != null) {
+                    attrs.preferredDisplayModeId = bestMode.modeId
+                    attrs.preferredRefreshRate = bestMode.refreshRate
+                }
+            } else {
+                attrs.preferredDisplayModeId = 0
+                attrs.preferredRefreshRate = 0f
+            }
+            window.attributes = attrs
+        }
     }
 
     override fun onDestroy() {
@@ -180,6 +226,7 @@ private fun GreenifyReaShell(
     onOpenShizukuApp: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val logs by viewModel.logs.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var currentTab by remember { mutableStateOf(TopTab.HOME) }
     val pagerState = rememberPagerState(initialPage = currentTab.ordinal, pageCount = { TopTab.entries.size })
@@ -191,8 +238,24 @@ private fun GreenifyReaShell(
         }
     }
     val screenBackdrop = rememberLayerBackdrop()
-    val liquidTabs = remember {
-        TopTab.entries.map { LiquidTabItem(label = it.label, icon = it.icon) }
+    val homeLeafIcon = ImageVector.vectorResource(R.drawable.ic_tile_leaf)
+    val liquidTabs = remember(homeLeafIcon) {
+        listOf(
+            LiquidTabItem(label = TopTab.HOME.label, icon = homeLeafIcon),
+            LiquidTabItem(label = TopTab.SETTINGS.label, icon = Icons.Outlined.Settings),
+        )
+    }
+
+    var inspectedPackage by remember { mutableStateOf<String?>(null) }
+    var showBatchSheet by remember { mutableStateOf(false) }
+    var showLogsSheet by remember { mutableStateOf(false) }
+    val hasPrivilegedBackend = state.environment.resolvedBackend != ResolvedBackend.NON_ROOT
+    val selectedApps = remember(state.allApps, state.selectedPackages) {
+        state.allApps.filter { it.packageName in state.selectedPackages }
+    }
+
+    LaunchedEffect(inspectedPackage) {
+        inspectedPackage?.let { viewModel.loadAppDetails(it) }
     }
 
     val notificationLauncher = rememberLauncherForActivityResult(
@@ -245,47 +308,16 @@ private fun GreenifyReaShell(
         }
     }
 
+    // No FloatingActionButton anywhere per UX requirement
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
-        snackbarHost = {
-            SnackbarHost(
-                hostState = snackbarHostState,
-                modifier = Modifier.padding(bottom = 86.dp),
-            )
-        },
-        floatingActionButton = {
-            AnimatedVisibility(visible = currentTab == TopTab.HOME && state.managedApps.isNotEmpty()) {
-                ExtendedFloatingActionButton(
-                    onClick = { viewModel.hibernateAll() },
-                    shape = RoundedCornerShape(50),
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                    modifier = Modifier.padding(bottom = 82.dp),
-                    icon = {
-                        if (state.isHibernating) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
-                            )
-                        } else {
-                            Icon(Icons.Outlined.Bedtime, contentDescription = null)
-                        }
-                    },
-                    text = {
-                        Text(if (state.isHibernating) "Putting to sleep..." else "Hibernate All")
-                    },
-                )
-            }
-        },
     ) { innerPadding ->
         Box(modifier = Modifier.fillMaxSize()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .recordLayerBackdrop(screenBackdrop)
-                    .background(MaterialTheme.colorScheme.background)
-                    .statusBarsPadding(),
+                    .background(MaterialTheme.colorScheme.background),
             ) {
                 val contentModifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding() * 0f)
                 HorizontalPager(
@@ -297,27 +329,47 @@ private fun GreenifyReaShell(
                     when (TopTab.entries[page]) {
                         TopTab.HOME -> HibernationScreen(
                             state = state,
-                            onRefresh = viewModel::refreshAll,
+                            onRefresh = { userTriggered -> viewModel.refreshAll(userTriggered = userTriggered) },
                             onQueryChange = viewModel::updateHomeQuery,
-                            onFilterChange = viewModel::updateHomeFilter,
-                            onIncludeSystemToggle = viewModel::setIncludeSystemApps,
+                            onToggleFilter = viewModel::toggleFilter,
+                            onEnterBatchMode = viewModel::enterBatchMode,
+                            onExitBatchMode = viewModel::exitBatchMode,
+                            onToggleBatchSelection = viewModel::toggleBatchSelection,
+                            onToggleSelectAllFiltered = viewModel::toggleSelectAllFiltered,
+                            onHibernatePackages = viewModel::hibernatePackages,
+                            onInspectPackage = { pkg -> inspectedPackage = pkg },
+                            onOpenBatchSheet = { showBatchSheet = true },
                             onRequestShizuku = viewModel::requestShizukuPermission,
                             onOpenShizukuApp = onOpenShizukuApp,
                             onOpenSettings = { currentTab = TopTab.SETTINGS },
-                            onHibernateSingle = viewModel::hibernateSingle,
-                            onToggleManaged = viewModel::toggleManaged,
-                            onOpenAppInfo = { onOpenAppInfo(it.packageName) },
+                            onEmitMessage = viewModel::emitMessage,
                             modifier = contentModifier,
                         )
 
                         TopTab.SETTINGS -> SettingsScreen(
                             state = state,
+                            logs = logs,
+                            onOpenLogsSheet = { showLogsSheet = true },
                             onSelectWorkingMode = viewModel::setWorkingMode,
                             onShallowChange = viewModel::setShallowHibernation,
+                            onTargetBucketChange = viewModel::setDefaultTargetBucket,
+                            onExcludeRecentsChange = viewModel::setExcludeRecentsApps,
+                            onProtectAudioChange = viewModel::setProtectActiveAudioApps,
+                            onFinerMediaChange = viewModel::setFinerMediaPlaybackDetection,
+                            onExcludeForegroundChange = viewModel::setExcludeForegroundApp,
+                            onIgnoreBackgroundFreeChange = viewModel::setIgnoreBackgroundFree,
+                            onIncludeSystemAppsChange = viewModel::setIncludeSystemApps,
+                            onWakeupTrackerChange = viewModel::setWakeupTrackerEnabled,
+                            onEnhancedWakeupSourcesChange = viewModel::setEnhancedWakeupSources,
                             onAutoHibernationChange = viewModel::setAutoHibernation,
                             onAutoIntervalChange = viewModel::setAutoHibernationInterval,
+                            onAutoScreenOffOnlyChange = viewModel::setAutoHibernationScreenOffOnly,
+                            onAutoHibernateAllUserAppsChange = viewModel::setAutoHibernateAllUserApps,
+                            onQuickActionNotifChange = viewModel::setQuickActionNotificationEnabled,
+                            onGeekExtrasChange = viewModel::setGeekExtrasEnabled,
                             onSelectThemeMode = viewModel::setThemeMode,
                             onDynamicColorChange = viewModel::setDynamicColor,
+                            onForceMaxRefreshRateChange = viewModel::setForceMaxRefreshRate,
                             onLiquidGlassBottomBarChange = viewModel::setLiquidGlassBottomBar,
                             onRequestShizuku = viewModel::requestShizukuPermission,
                             onOpenShizukuApp = onOpenShizukuApp,
@@ -336,6 +388,14 @@ private fun GreenifyReaShell(
                 }
             }
 
+            // Progressive Acrylic blur below the status bar so scrolling content blurs away cleanly
+            ProgressiveAcrylicStatusBar(
+                backdrop = screenBackdrop,
+                isDark = darkTheme,
+                enableBlur = state.settings.liquidGlassBottomBar,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+
             // Liquid Glass floating bottom bar with AGSL lens refraction, chromatic dispersion & damped drag
             LiquidBottomTabs(
                 selectedIndex = currentTab.ordinal,
@@ -348,6 +408,86 @@ private fun GreenifyReaShell(
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
                     .padding(bottom = 12.dp),
+            )
+
+            // In-window flowy bottom sheets running at native refresh rate with transparent nav bar
+            val inspectedAppTarget = remember(inspectedPackage, state.allApps) {
+                inspectedPackage?.let { pkg -> state.allApps.find { it.packageName == pkg } }
+            }
+            FlowyBottomSheet(
+                targetState = inspectedAppTarget,
+                onDismissRequest = { inspectedPackage = null },
+            ) { currentApp ->
+                AppDetailSheet(
+                    app = currentApp,
+                    components = state.inspectedComponents,
+                    appOpsState = state.inspectedAppOps,
+                    isLoadingDetails = state.isLoadingAppDetails,
+                    hasPrivilegedBackend = hasPrivilegedBackend,
+                    geekExtrasEnabled = state.settings.geekExtrasEnabled,
+                    onHibernate = { ignoreProtection ->
+                        viewModel.hibernatePackages(listOf(currentApp.packageName), ignoreProtection)
+                        inspectedPackage = null
+                    },
+                    onUpdatePolicy = { transform -> viewModel.updateAppPolicy(currentApp.packageName, transform) },
+                    onSetStandbyBucket = { bucket ->
+                        viewModel.applyStandbyBucket(listOf(currentApp.packageName), bucket)
+                    },
+                    onSetAppOp = { op, blocked ->
+                        viewModel.applyAppOp(listOf(currentApp.packageName), op, blocked, currentApp.packageName)
+                    },
+                    onToggleComponent = { comp, enable ->
+                        viewModel.toggleComponent(currentApp.packageName, comp.className, enable)
+                    },
+                    onBulkToggleComponents = { comps, enable ->
+                        viewModel.bulkToggleInspectedComponents(currentApp.packageName, comps, enable)
+                    },
+                    onClearWakeupLogs = { viewModel.clearWakeupLogsForPackage(currentApp.packageName) },
+                    onOpenAppInfo = { onOpenAppInfo(currentApp.packageName) },
+                    onEmitMessage = viewModel::emitMessage,
+                )
+            }
+
+            FlowyBottomSheet(
+                targetState = if (showBatchSheet) selectedApps.takeIf { it.isNotEmpty() } else null,
+                onDismissRequest = { showBatchSheet = false },
+            ) { batchApps ->
+                val selectedPkgList = batchApps.map { it.packageName }
+                BatchAdjustmentsSheet(
+                    selectedApps = batchApps,
+                    hasPrivilegedBackend = hasPrivilegedBackend,
+                    onHibernateSelected = { ignoreProtection ->
+                        viewModel.hibernatePackages(selectedPkgList, ignoreProtection)
+                        showBatchSheet = false
+                    },
+                    onUpdateBatchPolicy = { transform -> viewModel.updateBatchPolicy(selectedPkgList, transform) },
+                    onSetBatchStandbyBucket = { bucket -> viewModel.applyStandbyBucket(selectedPkgList, bucket) },
+                    onSetBatchAppOp = { op, blocked -> viewModel.applyAppOp(selectedPkgList, op, blocked, null) },
+                    onBatchCutOffCategories = { categories, enable ->
+                        viewModel.batchCutOffWakeupCategories(selectedPkgList, categories, enable)
+                    },
+                    onEmitMessage = viewModel::emitMessage,
+                )
+            }
+
+            FlowyBottomSheet(
+                targetState = if (showLogsSheet) Unit else null,
+                onDismissRequest = { showLogsSheet = false },
+            ) {
+                RawLogsSheet(
+                    logs = logs,
+                    formatRawDump = viewModel::formatAllRawLogs,
+                    onClearLogs = viewModel::clearLogs,
+                    onCopied = viewModel::emitMessage,
+                )
+            }
+
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 86.dp),
             )
         }
     }

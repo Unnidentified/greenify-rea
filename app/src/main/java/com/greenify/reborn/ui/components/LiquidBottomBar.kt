@@ -54,6 +54,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -511,49 +512,65 @@ private data class LightVec(
     val z: Float,
 )
 
-@Composable
-private fun rememberTiltedLightDirection(
-    baseZ: Float = -0.05f,
+private fun lightVecFromBase(
+    baseAngleRad: Double,
     rotationDegrees: Float,
+    baseZ: Float = -0.05f,
 ): LightVec {
-    val context = LocalContext.current
-    var gravityX by remember { mutableFloatStateOf(0f) }
-    var gravityY by remember { mutableFloatStateOf(-9.81f) }
-
-    DisposableEffect(context) {
-        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
-        val gravitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GRAVITY)
-        if (sensorManager == null || gravitySensor == null) {
-            onDispose {}
-        } else {
-            val listener = object : SensorEventListener {
-                override fun onSensorChanged(event: SensorEvent) {
-                    gravityX = gravityX * 0.85f + event.values[0] * 0.15f
-                    gravityY = gravityY * 0.85f + event.values[1] * 0.15f
-                }
-
-                override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
-            }
-            sensorManager.registerListener(listener, gravitySensor, SensorManager.SENSOR_DELAY_UI)
-            onDispose {
-                sensorManager.unregisterListener(listener)
-            }
-        }
-    }
-
-    val magSq = gravityX * gravityX + gravityY * gravityY
-    val baseAngle = if (magSq > 0.01f) {
-        val step = Math.toRadians(3.0)
-        (Math.atan2(gravityY.toDouble(), gravityX.toDouble()) / step).roundToInt() * step
-    } else {
-        -Math.PI / 2.0
-    }
-    val totalAngle = baseAngle + Math.toRadians(rotationDegrees.toDouble())
+    val totalAngle = baseAngleRad + Math.toRadians(rotationDegrees.toDouble())
     return LightVec(
         x = cos(totalAngle).toFloat() + 0.5f,
         y = sin(totalAngle).toFloat() + 0.7f,
         z = baseZ,
     )
+}
+
+@Composable
+private fun rememberTiltedBaseAngleRad(enabled: Boolean): Double {
+    val context = LocalContext.current
+    var quantizedAngleRad by remember { mutableDoubleStateOf(-Math.PI / 2.0) }
+
+    DisposableEffect(context, enabled) {
+        if (!enabled) {
+            onDispose {}
+        } else {
+            val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+            val gravitySensor = sensorManager?.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            if (sensorManager == null || gravitySensor == null) {
+                onDispose {}
+            } else {
+                var gx = 0f
+                var gy = -9.81f
+                var lastStep = Int.MIN_VALUE
+                val stepRad = Math.toRadians(3.0)
+                val listener = object : SensorEventListener {
+                    override fun onSensorChanged(event: SensorEvent) {
+                        gx = gx * 0.85f + event.values[0] * 0.15f
+                        gy = gy * 0.85f + event.values[1] * 0.15f
+                        if (gx * gx + gy * gy > 0.01f) {
+                            val angle = Math.atan2(gy.toDouble(), gx.toDouble())
+                            val step = (angle / stepRad).roundToInt()
+                            if (step != lastStep) {
+                                val diffDeg = Math.abs(Math.toDegrees(angle - lastStep * stepRad))
+                                if (lastStep == Int.MIN_VALUE || diffDeg >= 2.2) {
+                                    lastStep = step
+                                    quantizedAngleRad = step * stepRad
+                                }
+                            }
+                        }
+                    }
+
+                    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
+                }
+                sensorManager.registerListener(listener, gravitySensor, SensorManager.SENSOR_DELAY_NORMAL)
+                onDispose {
+                    sensorManager.unregisterListener(listener)
+                }
+            }
+        }
+    }
+
+    return quantizedAngleRad
 }
 
 @Stable
@@ -864,8 +881,11 @@ fun LiquidBottomTabs(
         }
     }
 
-    val outerLight = rememberTiltedLightDirection(baseZ = -0.05f, rotationDegrees = -45f)
-    val lensLight = rememberTiltedLightDirection(baseZ = -0.05f, rotationDegrees = 90f)
+    val baseAngleRad = rememberTiltedBaseAngleRad(enabled = enableBlur)
+    val outerLight = remember(baseAngleRad) { lightVecFromBase(baseAngleRad, -45f, -0.05f) }
+    val lensLight = remember(baseAngleRad) { lightVecFromBase(baseAngleRad, 90f, -0.05f) }
+    val barHighlightPath = remember { Path() }
+    var barHighlightPathSize by remember { mutableStateOf(Size.Zero) }
     val tabsBackdrop = rememberLayerBackdrop()
     val combinedBackdrop = remember(backdrop, tabsBackdrop) {
         CombinedBackdrop(backdrop, tabsBackdrop)
@@ -952,7 +972,12 @@ fun LiquidBottomTabs(
                     },
                 )
                 .drawWithContent {
-                    clipPath(Path().apply { addOutline(CircleShape.createOutline(size, layoutDirection, this@drawWithContent)) }) {
+                    if (barHighlightPathSize != size) {
+                        barHighlightPath.rewind()
+                        barHighlightPath.addOutline(CircleShape.createOutline(size, layoutDirection, this@drawWithContent))
+                        barHighlightPathSize = size
+                    }
+                    clipPath(barHighlightPath) {
                         highlight.drawOverlay(this)
                     }
                     drawContent()
@@ -1221,6 +1246,25 @@ private fun Modifier.drawGlassPill(
     }
     val shadowPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val bloomPaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
+    val cachedColorFilter = remember(vibrancySaturation) {
+        if (vibrancySaturation != 1f) {
+            ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(vibrancySaturation) })
+        } else {
+            null
+        }
+    }
+    var cachedShadowRadPx by remember { mutableFloatStateOf(-1f) }
+    var cachedShadowMaskFilter by remember { mutableStateOf<BlurMaskFilter?>(null) }
+    val cachedClipPath = remember { Path() }
+    var cachedOutlineW by remember { mutableFloatStateOf(-1f) }
+    var cachedOutlineH by remember { mutableFloatStateOf(-1f) }
+    var cachedOutlineDir by remember { mutableStateOf<LayoutDirection?>(null) }
+    var cachedOutline by remember { mutableStateOf<androidx.compose.ui.graphics.Outline?>(null) }
+
+    var cachedEffectKey by remember { mutableStateOf<Any?>(null) }
+    var cachedComposeEffect by remember { mutableStateOf<androidx.compose.ui.graphics.RenderEffect?>(null) }
+    var cachedInnerShadowRadPx by remember { mutableFloatStateOf(-1f) }
+    var cachedInnerShadowEffect by remember { mutableStateOf<androidx.compose.ui.graphics.RenderEffect?>(null) }
 
     val positioned = this.onGloballyPositioned { coords -> ownCoords = coords }
     val transformed = if (layerTransform != null) {
@@ -1239,14 +1283,31 @@ private fun Modifier.drawGlassPill(
                 return@drawWithContent
             }
 
-            val outline = shape.createOutline(size, layoutDirection, this)
-            val clipShapePath = Path().apply { addOutline(outline) }
+            if (cachedOutline == null ||
+                cachedOutlineW != w ||
+                cachedOutlineH != h ||
+                cachedOutlineDir != layoutDirection
+            ) {
+                val newOutline = shape.createOutline(size, layoutDirection, this)
+                cachedOutline = newOutline
+                cachedOutlineW = w
+                cachedOutlineH = h
+                cachedOutlineDir = layoutDirection
+                cachedClipPath.rewind()
+                cachedClipPath.addOutline(newOutline)
+            }
+            val outline = cachedOutline!!
+            val clipShapePath = cachedClipPath
 
             // 1. Soft ambient drop shadow behind capsule
             val shadowRadPx = shadowRadiusDp.toPx()
             if (shadowRadPx > 0.5f && shadowAlpha > 0.001f) {
+                if (cachedShadowMaskFilter == null || abs(cachedShadowRadPx - shadowRadPx) > 0.25f) {
+                    cachedShadowMaskFilter = BlurMaskFilter(shadowRadPx, BlurMaskFilter.Blur.NORMAL)
+                    cachedShadowRadPx = shadowRadPx
+                }
                 shadowPaint.color = Color.Black.copy(alpha = shadowAlpha).toArgb()
-                shadowPaint.maskFilter = BlurMaskFilter(shadowRadPx, BlurMaskFilter.Blur.NORMAL)
+                shadowPaint.maskFilter = cachedShadowMaskFilter
                 val cornerR = minOf(w, h) * 0.5f
                 drawContext.canvas.nativeCanvas.drawRoundRect(
                     0f,
@@ -1291,43 +1352,58 @@ private fun Modifier.drawGlassPill(
                     }
                 }
 
-                var renderEffect: RenderEffect? = null
-                if (vibrancySaturation != 1f) {
-                    val cm = ColorMatrix().apply { setSaturation(vibrancySaturation) }
-                    renderEffect = RenderEffect.createColorFilterEffect(ColorMatrixColorFilter(cm))
-                }
-                if (blurPx > 0.5f) {
-                    val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
-                    renderEffect = if (renderEffect != null) {
-                        RenderEffect.createChainEffect(blur, renderEffect)
-                    } else {
-                        blur
-                    }
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                val hasLens = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                     lensShader != null &&
                     lensHeightPx > 0.05f &&
                     lensAmountPx > 0.05f
-                ) {
-                    val corner = minOf(w, h) * 0.5f
-                    lensShader.setFloatUniform("size", w, h)
-                    lensShader.setFloatUniform("offset", -padPx, -padPx)
-                    lensShader.setFloatUniform("cornerRadii", corner, corner, corner, corner)
-                    lensShader.setFloatUniform("refractionHeight", lensHeightPx)
-                    lensShader.setFloatUniform("refractionAmount", -lensAmountPx)
-                    lensShader.setFloatUniform("depthEffect", if (depthEffect) 1.0f else 0.0f)
-                    if (chromaticAberration > 0f) {
-                        lensShader.setFloatUniform("chromaticAberration", chromaticAberration)
+                val effectKey = listOf(
+                    w,
+                    h,
+                    blurPx,
+                    lensHeightPx,
+                    lensAmountPx,
+                    padPx,
+                    vibrancySaturation,
+                    depthEffect,
+                    chromaticAberration,
+                    hasLens,
+                )
+                if (cachedEffectKey != effectKey) {
+                    var renderEffect: RenderEffect? = null
+                    if (cachedColorFilter != null) {
+                        renderEffect = RenderEffect.createColorFilterEffect(cachedColorFilter)
                     }
-                    val lensEffect = RenderEffect.createRuntimeShaderEffect(lensShader, "content")
-                    renderEffect = if (renderEffect != null) {
-                        RenderEffect.createChainEffect(lensEffect, renderEffect)
-                    } else {
-                        lensEffect
+                    if (blurPx > 0.5f) {
+                        val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+                        renderEffect = if (renderEffect != null) {
+                            RenderEffect.createChainEffect(blur, renderEffect)
+                        } else {
+                            blur
+                        }
                     }
+                    if (hasLens && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val corner = minOf(w, h) * 0.5f
+                        lensShader.setFloatUniform("size", w, h)
+                        lensShader.setFloatUniform("offset", -padPx, -padPx)
+                        lensShader.setFloatUniform("cornerRadii", corner, corner, corner, corner)
+                        lensShader.setFloatUniform("refractionHeight", lensHeightPx)
+                        lensShader.setFloatUniform("refractionAmount", -lensAmountPx)
+                        lensShader.setFloatUniform("depthEffect", if (depthEffect) 1.0f else 0.0f)
+                        if (chromaticAberration > 0f) {
+                            lensShader.setFloatUniform("chromaticAberration", chromaticAberration)
+                        }
+                        val lensEffect = RenderEffect.createRuntimeShaderEffect(lensShader, "content")
+                        renderEffect = if (renderEffect != null) {
+                            RenderEffect.createChainEffect(lensEffect, renderEffect)
+                        } else {
+                            lensEffect
+                        }
+                    }
+                    cachedComposeEffect = renderEffect?.asComposeRenderEffect()
+                    cachedEffectKey = effectKey
                 }
 
-                effectLayer.renderEffect = renderEffect?.asComposeRenderEffect()
+                effectLayer.renderEffect = cachedComposeEffect
 
                 clipPath(clipShapePath) {
                     translate(left = -padPx, top = -padPx) {
@@ -1347,10 +1423,14 @@ private fun Modifier.drawGlassPill(
             // 3.5. Soft inner shadow inside capsule (matches SukiSU InnerShadow during press)
             val innerShadowRadPx = innerShadowRadiusDp.toPx()
             if (innerShadowRadPx > 0.5f && innerShadowAlpha > 0.001f) {
+                if (cachedInnerShadowEffect == null || abs(cachedInnerShadowRadPx - innerShadowRadPx) > 0.25f) {
+                    cachedInnerShadowEffect = RenderEffect
+                        .createBlurEffect(innerShadowRadPx, innerShadowRadPx, Shader.TileMode.DECAL)
+                        .asComposeRenderEffect()
+                    cachedInnerShadowRadPx = innerShadowRadPx
+                }
                 innerShadowLayer.alpha = innerShadowAlpha
-                innerShadowLayer.renderEffect = RenderEffect
-                    .createBlurEffect(innerShadowRadPx, innerShadowRadPx, Shader.TileMode.DECAL)
-                    .asComposeRenderEffect()
+                innerShadowLayer.renderEffect = cachedInnerShadowEffect
                 innerShadowLayer.record(
                     density = this,
                     layoutDirection = layoutDirection,
