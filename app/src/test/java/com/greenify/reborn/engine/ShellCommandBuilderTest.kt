@@ -12,6 +12,7 @@ import com.greenify.reborn.model.PerAppPolicy
 import com.greenify.reborn.model.RecentsProtection
 import com.greenify.reborn.model.ResolvedBackend
 import com.greenify.reborn.model.StandbyBucket
+import com.greenify.reborn.model.SwipeCloseMode
 import com.greenify.reborn.model.ThemeMode
 import com.greenify.reborn.model.WorkingMode
 import com.greenify.reborn.ui.MainUiState
@@ -229,7 +230,11 @@ class ShellCommandBuilderTest {
     fun `default theme follows system with monet and max refresh rate enabled`() {
         assertEquals(ThemeMode.SYSTEM, UserSettingsState().themeMode)
         assertTrue(UserSettingsState().dynamicColor)
+        assertFalse(UserSettingsState().menuBarTint)
         assertTrue(UserSettingsState().forceMaxRefreshRate)
+        assertEquals(SwipeCloseMode.INHERIT, PerAppPolicy().autoCloseOnSwipe)
+        assertTrue(PerAppPolicy().isDefault)
+        assertFalse(PerAppPolicy(autoCloseOnSwipe = SwipeCloseMode.ALWAYS_CLOSE).isDefault)
         assertTrue(UserSettingsState().excludeRecentsApps)
         assertTrue(UserSettingsState().protectActiveAudioApps)
         assertTrue(ThemeMode.SYSTEM.resolveDarkTheme(systemDark = true))
@@ -254,5 +259,82 @@ class ShellCommandBuilderTest {
         assertFalse(shizukuGranted.isBackendDegraded(WorkingMode.AUTO))
         assertFalse(shizukuGranted.isBackendDegraded(WorkingMode.SHIZUKU))
         assertTrue(shizukuGranted.isBackendDegraded(WorkingMode.ROOT))
+    }
+
+    @Test
+    fun `swiped away detector returns removed non-protected non-foreground packages`() {
+        val skipped = ShellCommandBuilder.findSwipedAwayPackages(
+            previousRecents = setOf("com.app.a", "com.app.b", "com.android.systemui"),
+            currentRecents = setOf("com.app.b"),
+            foregroundPackage = "com.launcher.app",
+            excludedPackages = setOf("com.launcher.app"),
+        )
+        assertEquals(listOf("com.app.a"), skipped)
+    }
+
+    @Test
+    fun `per-app swipe close mode overrides global setting and only-marked flag`() {
+        val alwaysPolicy = PerAppPolicy(autoCloseOnSwipe = SwipeCloseMode.ALWAYS_CLOSE)
+        val neverPolicy = PerAppPolicy(autoCloseOnSwipe = SwipeCloseMode.NEVER_CLOSE)
+        val exemptAlwaysPolicy = PerAppPolicy(
+            strategy = HibernationStrategy.EXEMPT,
+            autoCloseOnSwipe = SwipeCloseMode.ALWAYS_CLOSE,
+        )
+        val inheritOff = UserSettingsState(
+            autoCloseSwipedRecents = false,
+            perAppPolicies = mapOf("com.app.always" to alwaysPolicy),
+        )
+        assertTrue(RecentsSwipeMonitorService.shouldMonitor(inheritOff))
+        assertTrue(
+            RecentsSwipeMonitorService.isEligibleForSwipeClose(
+                policy = alwaysPolicy,
+                globalEnabled = false,
+                onlyMarked = false,
+                includeSystem = false,
+            ),
+        )
+        assertFalse(
+            RecentsSwipeMonitorService.isEligibleForSwipeClose(
+                policy = PerAppPolicy(),
+                globalEnabled = false,
+                onlyMarked = false,
+                includeSystem = false,
+            ),
+        )
+        assertFalse(
+            RecentsSwipeMonitorService.isEligibleForSwipeClose(
+                policy = neverPolicy,
+                globalEnabled = true,
+                onlyMarked = false,
+                includeSystem = true,
+            ),
+        )
+        assertFalse(
+            RecentsSwipeMonitorService.isEligibleForSwipeClose(
+                policy = exemptAlwaysPolicy,
+                globalEnabled = true,
+                onlyMarked = false,
+                includeSystem = true,
+            ),
+        )
+        assertTrue(
+            RecentsSwipeMonitorService.isEligibleForSwipeClose(
+                policy = PerAppPolicy(),
+                globalEnabled = true,
+                onlyMarked = false,
+                includeSystem = false,
+            ),
+        )
+    }
+
+    @Test
+    fun `swiped away detector skips current foreground and launcher packages`() {
+        val removed = ShellCommandBuilder.findSwipedAwayPackages(
+            previousRecents = setOf("com.app.a", "com.app.b", "com.launcher.home", "com.greenify.reborn"),
+            currentRecents = setOf("com.app.b"),
+            foregroundPackage = "com.app.a",
+            excludedPackages = setOf("com.launcher.home"),
+        )
+        assertTrue(removed.isEmpty())
     }
 }

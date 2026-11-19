@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import com.greenify.reborn.data.AppPreferences
 import com.greenify.reborn.engine.AutoHibernationScheduler
+import com.greenify.reborn.engine.RecentsSwipeMonitorService
 
 class GreenifyRebornApp : Application() {
 
@@ -17,6 +18,9 @@ class GreenifyRebornApp : Application() {
             enabled = settings.autoHibernationEnabled,
             intervalMinutes = settings.autoHibernationIntervalMinutes,
         )
+        if (RecentsSwipeMonitorService.shouldMonitor(settings)) {
+            RecentsSwipeMonitorService.sync(this, enabled = true)
+        }
     }
 
     private fun createNotificationChannels() {

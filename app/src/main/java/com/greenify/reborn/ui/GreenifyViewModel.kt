@@ -2,6 +2,7 @@ package com.greenify.reborn.ui
 
 import android.app.Application
 import android.content.pm.PackageManager
+import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.greenify.reborn.data.AppLogStore
@@ -10,6 +11,8 @@ import com.greenify.reborn.data.DeviceAppRepository
 import com.greenify.reborn.data.UserSettingsState
 import com.greenify.reborn.engine.AutoHibernationScheduler
 import com.greenify.reborn.engine.HibernationEngine
+import com.greenify.reborn.engine.RecentsSwipeMonitorService
+import com.greenify.reborn.ui.components.AppIconCache
 import com.greenify.reborn.model.AppComponentInfo
 import com.greenify.reborn.model.AppEntry
 import com.greenify.reborn.model.AppFilterChip
@@ -54,15 +57,13 @@ data class MainUiState(
     ),
     val allApps: List<AppEntry> = emptyList(),
     val isLoadingApps: Boolean = true,
+    val hasInspectedEnvironment: Boolean = false,
     val isRefreshing: Boolean = false,
     val isHibernating: Boolean = false,
     val homeQuery: String = "",
     val activeFilters: Set<AppFilterChip> = setOf(AppFilterChip.USER),
     val isBatchMode: Boolean = false,
     val selectedPackages: Set<String> = emptySet(),
-    val inspectedComponents: List<AppComponentInfo> = emptyList(),
-    val inspectedAppOps: Map<AppOpRestriction, Boolean> = emptyMap(),
-    val isLoadingAppDetails: Boolean = false,
 ) {
     val awakeCount: Int
         get() = filteredApps.count { !it.isStopped }
@@ -117,6 +118,12 @@ data class MainUiState(
     }
 }
 
+data class AppDetailsUiState(
+    val components: List<AppComponentInfo> = emptyList(),
+    val appOps: Map<AppOpRestriction, Boolean> = emptyMap(),
+    val isLoading: Boolean = false,
+)
+
 class GreenifyViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences(application)
@@ -126,6 +133,9 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
 
     private val _uiState = MutableStateFlow(MainUiState(settings = preferences.state.value))
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
+
+    private val _appDetailsState = MutableStateFlow(AppDetailsUiState())
+    val appDetailsState: StateFlow<AppDetailsUiState> = _appDetailsState.asStateFlow()
 
     val logs: StateFlow<List<EngineLogEntry>> = logStore.logs
 
@@ -198,13 +208,39 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
                 )
             }
             val settings = preferences.state.value
-            val env = repository.inspectEnvironment(
+            var env = repository.inspectEnvironment(
                 preferredMode = settings.workingMode,
                 probeRoot = probeRoot,
                 previousRootVerified = settings.rootVerifiedPreviously,
             )
+            // On cold startup, allow brief grace for Shizuku's sticky binder to deliver before marking degraded
+            if (!_uiState.value.hasInspectedEnvironment &&
+                env.resolvedBackend == ResolvedBackend.NON_ROOT &&
+                env.shizukuInstalled &&
+                !env.shizukuRunning &&
+                (settings.workingMode == WorkingMode.AUTO || settings.workingMode == WorkingMode.SHIZUKU)
+            ) {
+                for (i in 0 until 6) {
+                    delay(50L)
+                    if (runCatching { Shizuku.pingBinder() }.getOrDefault(false)) {
+                        env = repository.inspectEnvironment(
+                            preferredMode = settings.workingMode,
+                            probeRoot = probeRoot,
+                            previousRootVerified = settings.rootVerifiedPreviously,
+                        )
+                        break
+                    }
+                }
+            }
             if (env.rootAvailable && !settings.rootVerifiedPreviously) {
                 preferences.setRootVerifiedPreviously(true)
+            }
+            // Publish resolved backend immediately so UI never flashes degraded card during package scan
+            _uiState.update { current ->
+                current.copy(
+                    environment = env,
+                    hasInspectedEnvironment = true,
+                )
             }
             val runtimeSignals = engine.queryLiveRuntimeSignals(env.resolvedBackend)
             val includeSystem = settings.includeSystemApps ||
@@ -234,6 +270,17 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
                     isRefreshing = false,
                     selectedPackages = validSelected,
                 )
+            }
+            // Pre-warm top visible app icons on IO so immediate fast scrolling after open stays smooth
+            launch(kotlinx.coroutines.Dispatchers.IO) {
+                val app = getApplication<Application>()
+                val density = app.resources.displayMetrics.density
+                val targetPx = (44f * density).toInt().coerceIn(72, 160)
+                val initialPackages = MainUiState
+                    .filterApps(snapshot.apps, _uiState.value.activeFilters, _uiState.value.homeQuery)
+                    .take(14)
+                    .map { it.packageName }
+                AppIconCache.prewarm(app, initialPackages, targetPx)
             }
         }
     }
@@ -314,25 +361,30 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
     fun loadAppDetails(packageName: String) {
         loadDetailsJob?.cancel()
         loadDetailsJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isLoadingAppDetails = true,
-                    inspectedComponents = emptyList(),
-                    inspectedAppOps = emptyMap(),
-                )
+            val startedAtMs = SystemClock.elapsedRealtime()
+            _appDetailsState.update { current ->
+                if (current.isLoading &&
+                    current.components.isEmpty() &&
+                    current.appOps.isEmpty()
+                ) {
+                    current
+                } else {
+                    AppDetailsUiState(isLoading = true)
+                }
             }
             coroutineScope {
                 val componentsDeferred = async { repository.loadAppComponents(packageName) }
                 val appOpsDeferred = async { engine.readAppOps(packageName) }
                 val components = componentsDeferred.await()
                 val appOps = appOpsDeferred.await()
-                _uiState.update {
-                    it.copy(
-                        inspectedComponents = components,
-                        inspectedAppOps = appOps,
-                        isLoadingAppDetails = false,
-                    )
-                }
+                // Avoid heavy recomposition mid-way through the drawer open spring.
+                val remaining = 320L - (SystemClock.elapsedRealtime() - startedAtMs)
+                if (remaining > 0L) kotlinx.coroutines.delay(remaining)
+                _appDetailsState.value = AppDetailsUiState(
+                    components = components,
+                    appOps = appOps,
+                    isLoading = false,
+                )
             }
         }
     }
@@ -350,10 +402,12 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
 
     fun updateAppPolicy(packageName: String, transform: (PerAppPolicy) -> PerAppPolicy) {
         preferences.updateAppPolicy(packageName, transform)
+        RecentsSwipeMonitorService.sync(getApplication(), preferences.state.value)
     }
 
     fun updateBatchPolicy(packages: List<String>, transform: (PerAppPolicy) -> PerAppPolicy) {
         preferences.updateBatchAppPolicies(packages, transform)
+        RecentsSwipeMonitorService.sync(getApplication(), preferences.state.value)
         _events.tryEmit("Updated policy for ${packages.size} app(s).")
     }
 
@@ -383,7 +437,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
                     _events.tryEmit("$verb ${restriction.label} for ${packages.size} app(s).")
                     if (inspectedPackage != null) {
                         val refreshed = engine.readAppOps(inspectedPackage)
-                        _uiState.update { it.copy(inspectedAppOps = refreshed) }
+                        _appDetailsState.update { it.copy(appOps = refreshed) }
                     }
                 }
                 .onFailure { _events.tryEmit("Failed: ${it.message}") }
@@ -395,7 +449,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
             engine.setComponentEnabled(packageName, className, enable)
                 .onSuccess {
                     val components = repository.loadAppComponents(packageName)
-                    _uiState.update { it.copy(inspectedComponents = components) }
+                    _appDetailsState.update { it.copy(components = components) }
                 }
                 .onFailure { _events.tryEmit("Component cut-off failed: ${it.message}") }
         }
@@ -414,7 +468,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
                     val verb = if (enable) "Restored" else "Cut off"
                     _events.tryEmit("$verb $count wake-up component(s).")
                     val updated = repository.loadAppComponents(packageName)
-                    _uiState.update { it.copy(inspectedComponents = updated) }
+                    _appDetailsState.update { it.copy(components = updated) }
                 }
                 .onFailure { _events.tryEmit("Batch cut-off failed: ${it.message}") }
         }
@@ -486,12 +540,25 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
 
     fun setAutoHibernationScreenOffOnly(enabled: Boolean) = preferences.setAutoHibernationScreenOffOnly(enabled)
     fun setAutoHibernateAllUserApps(enabled: Boolean) = preferences.setAutoHibernateAllUserApps(enabled)
+
+    fun setAutoCloseSwipedRecents(enabled: Boolean) {
+        preferences.setAutoCloseSwipedRecents(enabled)
+        RecentsSwipeMonitorService.sync(getApplication(), preferences.state.value)
+        if (enabled) {
+            logStore.info("SWIPE_CLOSE", "Recents swipe auto-close monitor enabled.")
+        } else {
+            logStore.info("SWIPE_CLOSE", "Recents swipe auto-close monitor disabled.")
+        }
+    }
+
+    fun setAutoCloseSwipedOnlyMarked(enabled: Boolean) = preferences.setAutoCloseSwipedOnlyMarked(enabled)
     fun setQuickActionNotificationEnabled(enabled: Boolean) = preferences.setQuickActionNotificationEnabled(enabled)
     fun setGeekExtrasEnabled(enabled: Boolean) = preferences.setGeekExtrasEnabled(enabled)
     fun setThemeMode(mode: ThemeMode) = preferences.setThemeMode(mode)
     fun setDynamicColor(enabled: Boolean) = preferences.setDynamicColor(enabled)
     fun setForceMaxRefreshRate(enabled: Boolean) = preferences.setForceMaxRefreshRate(enabled)
     fun setLiquidGlassBottomBar(enabled: Boolean) = preferences.setLiquidGlassBottomBar(enabled)
+    fun setMenuBarTint(enabled: Boolean) = preferences.setMenuBarTint(enabled)
     fun setIncludeSystemApps(include: Boolean) = preferences.setIncludeSystemApps(include)
 
     fun requestShizukuPermission() {
@@ -553,6 +620,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
     fun importBackupJson(rawJson: String) {
         preferences.importBackupJson(rawJson)
             .onSuccess { count ->
+                RecentsSwipeMonitorService.sync(getApplication(), preferences.state.value)
                 logStore.info("BACKUP", "Imported backup snapshot ($count configured app rule(s)).")
                 _events.tryEmit("Imported $count app rule(s) & settings.")
             }

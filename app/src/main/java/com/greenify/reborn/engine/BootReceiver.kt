@@ -15,6 +15,10 @@ class BootReceiver : BroadcastReceiver() {
                 enabled = prefs.autoHibernationEnabled,
                 intervalMinutes = prefs.autoHibernationIntervalMinutes,
             )
+            RecentsSwipeMonitorService.sync(
+                context = context.applicationContext,
+                settings = prefs,
+            )
         }
     }
 }

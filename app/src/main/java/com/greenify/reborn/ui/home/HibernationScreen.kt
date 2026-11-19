@@ -1,6 +1,6 @@
 package com.greenify.reborn.ui.home
 
-import android.text.format.DateUtils
+import androidx.compose.foundation.background
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -91,9 +91,10 @@ import com.greenify.reborn.ui.components.AllSetBackendCard
 import com.greenify.reborn.ui.components.AppIconImage
 import com.greenify.reborn.ui.components.DegradedBackendCard
 import com.greenify.reborn.ui.components.MiuixSearchBar
+import com.greenify.reborn.ui.components.ObserveScrollCollapse
 import com.greenify.reborn.ui.components.StandbyBucketChip
 import com.greenify.reborn.ui.components.fadingHorizontalEdges
-import kotlinx.coroutines.Job
+import com.greenify.reborn.ui.components.rememberBoundaryBounceOffset
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -113,6 +114,7 @@ fun HibernationScreen(
     onRequestShizuku: () -> Unit,
     onOpenShizukuApp: () -> Unit,
     onOpenSettings: () -> Unit,
+    onBottomBarCollapsedChange: (Boolean) -> Unit,
     onEmitMessage: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -129,8 +131,8 @@ fun HibernationScreen(
     val pullToRefreshState = remember {
         val anim = Animatable(0f, visibilityThreshold = 0.0005f)
         val settleSpec = spring<Float>(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = 0.78f,
+            stiffness = 300f,
             visibilityThreshold = 0.0005f,
         )
         object : PullToRefreshState {
@@ -148,61 +150,15 @@ fun HibernationScreen(
         }
     }
     val listState = rememberLazyListState()
+    ObserveScrollCollapse(listState = listState, onCollapseChange = onBottomBarCollapsedChange)
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val density = LocalDensity.current
     val pullMaxPx = with(density) { 48.dp.toPx() }
-    val bottomBounceMaxPx = with(density) { 36.dp.toPx() }
-
-    // Single-spring boundary bounce & direct 1:1 pull-to-refresh (zero phase-lag jitter)
-    val bottomBounceAnim = remember { Animatable(0f) }
-    val scope = rememberCoroutineScope()
-    var bottomSettleJob by remember { mutableStateOf<Job?>(null) }
-
-    val bounceNestedScroll = remember(listState, bottomBounceMaxPx) {
-        object : NestedScrollConnection {
-            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-                if (source == NestedScrollSource.UserInput && bottomBounceAnim.value < 0f && available.y > 0f) {
-                    bottomSettleJob?.cancel()
-                    val current = bottomBounceAnim.value
-                    val consumed = available.y.coerceAtMost(-current)
-                    val next = (current + consumed).coerceAtMost(0f)
-                    scope.launch { bottomBounceAnim.snapTo(next) }
-                    return Offset(0f, consumed)
-                }
-                return Offset.Zero
-            }
-
-            override fun onPostScroll(
-                consumed: Offset,
-                available: Offset,
-                source: NestedScrollSource,
-            ): Offset {
-                if (source == NestedScrollSource.UserInput && !listState.canScrollForward && available.y < 0f) {
-                    bottomSettleJob?.cancel()
-                    val next = (bottomBounceAnim.value + available.y * 0.28f).coerceIn(-bottomBounceMaxPx, 0f)
-                    scope.launch { bottomBounceAnim.snapTo(next) }
-                    return Offset(0f, available.y)
-                }
-                return Offset.Zero
-            }
-
-            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (bottomBounceAnim.value != 0f) {
-                    bottomSettleJob?.cancel()
-                    bottomSettleJob = scope.launch {
-                        bottomBounceAnim.animateTo(
-                            targetValue = 0f,
-                            animationSpec = spring(
-                                dampingRatio = Spring.DampingRatioNoBouncy,
-                                stiffness = Spring.StiffnessMedium,
-                            ),
-                        )
-                    }
-                }
-                return Velocity.Zero
-            }
-        }
-    }
+    val (bounceNestedScroll, bounceOffsetPx) = rememberBoundaryBounceOffset(
+        listState = listState,
+        allowTopDragBounce = false,
+        isPullToRefreshActive = { pullToRefreshState.distanceFraction > 0.35f || state.isRefreshing },
+    )
 
     PullToRefreshBox(
         isRefreshing = state.isRefreshing,
@@ -220,7 +176,7 @@ fun HibernationScreen(
                     .graphicsLayer {
                         val d = pullToRefreshState.distanceFraction.coerceIn(0f, 1.5f)
                         val pullPx = (d / (1f + d * 0.35f)) * pullMaxPx
-                        translationY = pullPx + bottomBounceAnim.value
+                        translationY = pullPx + bounceOffsetPx()
                     },
                 contentPadding = PaddingValues(
                     top = statusBarTop + 22.dp,
@@ -310,18 +266,17 @@ fun HibernationScreen(
                 item {
                     Box(modifier = Modifier.padding(horizontal = 16.dp)) {
                         AnimatedVisibility(visible = !state.isBatchMode) {
-                            if (isDegraded) {
-                                DegradedBackendCard(
+                            when {
+                                !isDegraded -> AllSetBackendCard(
+                                    environment = state.environment,
+                                    onClick = onOpenSettings,
+                                )
+                                state.hasInspectedEnvironment -> DegradedBackendCard(
                                     environment = state.environment,
                                     preferredMode = state.settings.workingMode,
                                     onRequestShizuku = onRequestShizuku,
                                     onOpenShizukuApp = onOpenShizukuApp,
                                     onOpenSettings = onOpenSettings,
-                                )
-                            } else {
-                                AllSetBackendCard(
-                                    environment = state.environment,
-                                    onClick = onOpenSettings,
                                 )
                             }
                         }
@@ -329,12 +284,63 @@ fun HibernationScreen(
                 }
 
                 item {
-                    MiuixSearchBar(
-                        query = state.homeQuery,
-                        onQueryChange = onQueryChange,
-                        placeholder = "Search apps or packages...",
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
+                    val napTargets = remember(filteredApps) {
+                        filteredApps
+                            .filter { !it.isStopped && it.policy.strategy != HibernationStrategy.EXEMPT }
+                            .map { it.packageName }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        MiuixSearchBar(
+                            query = state.homeQuery,
+                            onQueryChange = onQueryChange,
+                            placeholder = "Search apps or packages...",
+                            modifier = Modifier.weight(1f),
+                        )
+                        Surface(
+                            shape = CircleShape,
+                            color = if (napTargets.isNotEmpty()) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainerLow
+                            },
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            IconButton(
+                                enabled = !state.isHibernating,
+                                onClick = {
+                                    if (napTargets.isNotEmpty()) {
+                                        onHibernatePackages(napTargets, false)
+                                    } else {
+                                        onEmitMessage("All matching non-exempt apps are already napping.")
+                                    }
+                                },
+                            ) {
+                                if (state.isHibernating) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(18.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Bedtime,
+                                        contentDescription = "Nap awake apps (${napTargets.size})",
+                                        tint = if (napTargets.isNotEmpty()) {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Stackable composable filter chips fading cleanly on screen borders
@@ -735,12 +741,12 @@ private fun AppListRow(
                 ) {
                     when {
                         wakeup.lastWakeupAt != null -> {
-                            val rel = DateUtils.getRelativeTimeSpanString(wakeup.lastWakeupAt)
+                            val rel = formatRelativeShort(wakeup.lastWakeupAt)
                             val countSuffix = if (wakeup.totalCount > 1) " • ${wakeup.totalCount}×" else ""
                             "Woke up $rel$countSuffix"
                         }
                         app.lastNappedAt != null -> {
-                            val rel = DateUtils.getRelativeTimeSpanString(app.lastNappedAt)
+                            val rel = formatRelativeShort(app.lastNappedAt)
                             "Last napped $rel"
                         }
                         app.lastExitReason != null -> "Last exit: ${app.lastExitReason}"
@@ -767,9 +773,10 @@ private fun StatusTagPill(
     bg: androidx.compose.ui.graphics.Color,
     fg: androidx.compose.ui.graphics.Color,
 ) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = bg,
+    Box(
+        modifier = Modifier
+            .background(bg, RoundedCornerShape(50))
+            .padding(horizontal = 8.dp, vertical = 2.dp),
     ) {
         Text(
             text = text,
@@ -777,8 +784,17 @@ private fun StatusTagPill(
             color = fg,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
         )
+    }
+}
+
+private fun formatRelativeShort(timestampMillis: Long): String {
+    val diffSec = ((System.currentTimeMillis() - timestampMillis) / 1000L).coerceAtLeast(0L)
+    return when {
+        diffSec < 60L -> "${diffSec}s ago"
+        diffSec < 3600L -> "${diffSec / 60L}m ago"
+        diffSec < 86_400L -> "${diffSec / 3600L}h ago"
+        else -> "${diffSec / 86_400L}d ago"
     }
 }
 
