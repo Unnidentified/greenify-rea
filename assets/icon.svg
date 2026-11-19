@@ -1,5 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
-  <rect width="108" height="108" rx="24" fill="#0E3323"/>
-  <path fill="#F3F7F4" d="M 48.37,29.69 A 26.0,26.0 0 1,0 77.31,58.63 A 20.5,20.5 0 0,1 48.37,29.69 Z"/>
-  <path fill="#7CE0A3" d="M 62.10,39.50 a 5.4,5.4 0 1,0 10.8,0 a 5.4,5.4 0 1,0 -10.8,0 Z"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="108" y2="108" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#13452E"/>
+      <stop offset="100%" stop-color="#071C11"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="26" y1="86" x2="82" y2="22" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#18B865"/>
+      <stop offset="55%" stop-color="#45E28B"/>
+      <stop offset="100%" stop-color="#9DF7C3"/>
+    </linearGradient>
+  </defs>
+  <rect width="108" height="108" rx="26" fill="url(#bg)"/>
+  <g transform="translate(17.45, 17.45) scale(4.3)">
+    <path fill="url(#leaf)" d="M12 1C6.47715 1 2 5.02944 2 10V16H4L4 10.5858L8.29289 6.29288L9.70711 7.70709L6 11.4142V13.9556C11.0533 13.504 15 9.66681 15 5L15 1H12Z"/>
+  </g>
 </svg>
