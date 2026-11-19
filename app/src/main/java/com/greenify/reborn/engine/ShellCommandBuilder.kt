@@ -208,6 +208,24 @@ object ShellCommandBuilder {
         return result - PROTECTED_PACKAGES
     }
 
+    /**
+     * Computes packages that were in [previousRecents] and have been removed from
+     * [currentRecents] (e.g. swiped away on the Recents screen), excluding protected
+     * packages, the active foreground app, and any launcher/IME packages in [excludedPackages].
+     */
+    fun findSwipedAwayPackages(
+        previousRecents: Set<String>,
+        currentRecents: Set<String>,
+        foregroundPackage: String?,
+        excludedPackages: Set<String> = emptySet(),
+    ): List<String> {
+        if (previousRecents.isEmpty()) return emptyList()
+        return sanitizePackages(previousRecents - currentRecents)
+            .filter { pkg ->
+                pkg != foregroundPackage && pkg !in excludedPackages
+            }
+    }
+
     fun parseActiveMediaPackages(
         mediaSessionOutput: String,
         audioOutput: String,

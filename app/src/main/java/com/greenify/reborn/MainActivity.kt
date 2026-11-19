@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.greenify.reborn.model.ResolvedBackend
 import com.greenify.reborn.ui.GreenifyViewModel
+import com.greenify.reborn.ui.components.AnimatedLogoSplashOverlay
 import com.greenify.reborn.ui.components.AppIconCache
 import com.greenify.reborn.ui.components.FlowyBottomSheet
 import com.greenify.reborn.ui.components.LiquidBottomTabs
@@ -132,13 +134,21 @@ class MainActivity : ComponentActivity() {
                 themeMode = state.settings.themeMode,
                 dynamicColor = state.settings.dynamicColor,
             ) {
-                GreenifyReaShell(
-                    viewModel = viewModel,
-                    darkTheme = darkTheme,
-                    onOpenAppInfo = { pkg -> openSystemAppInfo(pkg) },
-                    onOpenUsageAccess = { openUsageAccessSettings() },
-                    onOpenShizukuApp = { openShizukuApp() },
-                )
+                var showSplash by rememberSaveable { mutableStateOf(true) }
+                Box(modifier = Modifier.fillMaxSize()) {
+                    GreenifyReaShell(
+                        viewModel = viewModel,
+                        darkTheme = darkTheme,
+                        onOpenAppInfo = { pkg -> openSystemAppInfo(pkg) },
+                        onOpenUsageAccess = { openUsageAccessSettings() },
+                        onOpenShizukuApp = { openShizukuApp() },
+                    )
+                    if (showSplash) {
+                        AnimatedLogoSplashOverlay(
+                            onFinished = { showSplash = false },
+                        )
+                    }
+                }
             }
         }
     }
@@ -229,10 +239,12 @@ private fun GreenifyReaShell(
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var currentTab by remember { mutableStateOf(TopTab.HOME) }
+    var isBottomBarCollapsed by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(initialPage = currentTab.ordinal, pageCount = { TopTab.entries.size })
     val context = androidx.compose.ui.platform.LocalContext.current
 
     LaunchedEffect(currentTab) {
+        isBottomBarCollapsed = false
         if (pagerState.currentPage != currentTab.ordinal) {
             pagerState.animateScrollToPage(currentTab.ordinal)
         }
@@ -342,6 +354,7 @@ private fun GreenifyReaShell(
                             onRequestShizuku = viewModel::requestShizukuPermission,
                             onOpenShizukuApp = onOpenShizukuApp,
                             onOpenSettings = { currentTab = TopTab.SETTINGS },
+                            onBottomBarCollapsedChange = { isBottomBarCollapsed = it },
                             onEmitMessage = viewModel::emitMessage,
                             modifier = contentModifier,
                         )
@@ -365,10 +378,13 @@ private fun GreenifyReaShell(
                             onAutoIntervalChange = viewModel::setAutoHibernationInterval,
                             onAutoScreenOffOnlyChange = viewModel::setAutoHibernationScreenOffOnly,
                             onAutoHibernateAllUserAppsChange = viewModel::setAutoHibernateAllUserApps,
+                            onAutoCloseSwipedRecentsChange = viewModel::setAutoCloseSwipedRecents,
+                            onAutoCloseSwipedOnlyMarkedChange = viewModel::setAutoCloseSwipedOnlyMarked,
                             onQuickActionNotifChange = viewModel::setQuickActionNotificationEnabled,
                             onGeekExtrasChange = viewModel::setGeekExtrasEnabled,
                             onSelectThemeMode = viewModel::setThemeMode,
                             onDynamicColorChange = viewModel::setDynamicColor,
+                            onMenuBarTintChange = viewModel::setMenuBarTint,
                             onForceMaxRefreshRateChange = viewModel::setForceMaxRefreshRate,
                             onLiquidGlassBottomBarChange = viewModel::setLiquidGlassBottomBar,
                             onRequestShizuku = viewModel::requestShizukuPermission,
@@ -382,6 +398,7 @@ private fun GreenifyReaShell(
                             },
                             onExportJson = { exportLauncher.launch("greenify-rea-backup.json") },
                             onImportJson = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                            onBottomBarCollapsedChange = { isBottomBarCollapsed = it },
                             modifier = contentModifier,
                         )
                     }
@@ -404,6 +421,8 @@ private fun GreenifyReaShell(
                 tabs = liquidTabs,
                 isDark = darkTheme,
                 enableBlur = state.settings.liquidGlassBottomBar,
+                menuBarTint = state.settings.menuBarTint,
+                collapsed = isBottomBarCollapsed,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
@@ -418,11 +437,12 @@ private fun GreenifyReaShell(
                 targetState = inspectedAppTarget,
                 onDismissRequest = { inspectedPackage = null },
             ) { currentApp ->
+                val appDetails by viewModel.appDetailsState.collectAsStateWithLifecycle()
                 AppDetailSheet(
                     app = currentApp,
-                    components = state.inspectedComponents,
-                    appOpsState = state.inspectedAppOps,
-                    isLoadingDetails = state.isLoadingAppDetails,
+                    components = appDetails.components,
+                    appOpsState = appDetails.appOps,
+                    isLoadingDetails = appDetails.isLoading,
                     hasPrivilegedBackend = hasPrivilegedBackend,
                     geekExtrasEnabled = state.settings.geekExtrasEnabled,
                     onHibernate = { ignoreProtection ->

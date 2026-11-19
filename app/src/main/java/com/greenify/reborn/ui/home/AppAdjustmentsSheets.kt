@@ -1,6 +1,7 @@
 package com.greenify.reborn.ui.home
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +61,7 @@ import com.greenify.reborn.model.HibernationStrategy
 import com.greenify.reborn.model.PerAppPolicy
 import com.greenify.reborn.model.RecentsProtection
 import com.greenify.reborn.model.StandbyBucket
+import com.greenify.reborn.model.SwipeCloseMode
 import com.greenify.reborn.model.WakeupCategory
 import com.greenify.reborn.ui.components.AppIconImage
 import com.greenify.reborn.ui.components.GreenifySwitch
@@ -294,6 +296,26 @@ fun AppDetailSheet(
 
                         InsetLine()
                         Text(
+                            text = "Auto-Close on Recents Swipe",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SwipeCloseMode.entries.forEach { mode ->
+                                ChoiceChip(
+                                    label = mode.displayName,
+                                    selected = app.policy.autoCloseOnSwipe == mode,
+                                    onClick = { onUpdatePolicy { it.copy(autoCloseOnSwipe = mode) } },
+                                )
+                            }
+                        }
+
+                        InsetLine()
+                        Text(
                             text = "Set Standby Bucket Now",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
@@ -346,7 +368,6 @@ fun AppDetailSheet(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .graphicsLayer { alpha = if (rowEnabled) 1f else 0.6f }
                                         .clickable(enabled = rowEnabled) { onSetAppOp(op, !isBlocked) },
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -808,6 +829,26 @@ fun BatchAdjustmentsSheet(
 
                         InsetLine()
                         Text(
+                            text = "Batch Auto-Close on Recents Swipe",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SwipeCloseMode.entries.forEach { mode ->
+                                ChoiceChip(
+                                    label = mode.displayName,
+                                    selected = false,
+                                    onClick = { onUpdateBatchPolicy { it.copy(autoCloseOnSwipe = mode) } },
+                                )
+                            }
+                        }
+
+                        InsetLine()
+                        Text(
                             text = "Apply Standby Bucket to Selected",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.primary,
@@ -1053,28 +1094,29 @@ private fun SheetTabPill(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(50),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primary
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimary
-        } else {
-            MaterialTheme.colorScheme.onSurfaceVariant
-        },
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = FontWeight.SemiBold,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
             maxLines = 1,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
         )
     }
 }
@@ -1085,44 +1127,43 @@ private fun ChoiceChip(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    Surface(
+    Box(
         modifier = Modifier
             .clip(RoundedCornerShape(12.dp))
-            .clickable(onClick = onClick),
-        shape = RoundedCornerShape(12.dp),
-        color = if (selected) {
-            MaterialTheme.colorScheme.primaryContainer
-        } else {
-            MaterialTheme.colorScheme.surfaceContainerHigh
-        },
-        contentColor = if (selected) {
-            MaterialTheme.colorScheme.onPrimaryContainer
-        } else {
-            MaterialTheme.colorScheme.onSurface
-        },
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerHigh
+                },
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Text(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
         )
     }
 }
 
 @Composable
 private fun SheetCard(content: @Composable () -> Unit) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            content()
-        }
+        content()
     }
 }
 

@@ -34,12 +34,15 @@ data class UserSettingsState(
     val autoHibernationIntervalMinutes: Int = 60,
     val autoHibernationScreenOffOnly: Boolean = false,
     val autoHibernateAllUserApps: Boolean = false,
+    val autoCloseSwipedRecents: Boolean = false,
+    val autoCloseSwipedOnlyMarked: Boolean = false,
     val quickActionNotificationEnabled: Boolean = false,
     val geekExtrasEnabled: Boolean = false,
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val dynamicColor: Boolean = true,
     val forceMaxRefreshRate: Boolean = true,
     val liquidGlassBottomBar: Boolean = true,
+    val menuBarTint: Boolean = false,
     val includeSystemApps: Boolean = false,
     val perAppPolicies: Map<String, PerAppPolicy> = emptyMap(),
     val managedPackages: Set<String> = emptySet(),
@@ -118,12 +121,15 @@ class AppPreferences(context: Context) {
                 .coerceAtLeast(15),
             autoHibernationScreenOffOnly = prefs.getBoolean(KEY_AUTO_SCREEN_OFF_ONLY, false),
             autoHibernateAllUserApps = prefs.getBoolean(KEY_AUTO_HIBERNATE_ALL_USER, false),
+            autoCloseSwipedRecents = prefs.getBoolean(KEY_AUTO_CLOSE_SWIPED_RECENTS, false),
+            autoCloseSwipedOnlyMarked = prefs.getBoolean(KEY_AUTO_CLOSE_SWIPED_ONLY_MARKED, false),
             quickActionNotificationEnabled = prefs.getBoolean(KEY_QUICK_ACTION_NOTIF, false),
             geekExtrasEnabled = prefs.getBoolean(KEY_GEEK_EXTRAS, false),
             themeMode = themeMode,
             dynamicColor = prefs.getBoolean(KEY_DYNAMIC_COLOR, true),
             forceMaxRefreshRate = prefs.getBoolean(KEY_FORCE_MAX_REFRESH_RATE, true),
             liquidGlassBottomBar = prefs.getBoolean(KEY_LIQUID_GLASS_BOTTOM_BAR, true),
+            menuBarTint = prefs.getBoolean(KEY_MENU_BAR_TINT, false),
             includeSystemApps = prefs.getBoolean(KEY_INCLUDE_SYSTEM, false),
             perAppPolicies = policies,
             managedPackages = scheduledPackages,
@@ -210,6 +216,16 @@ class AppPreferences(context: Context) {
         _state.update { it.copy(autoHibernateAllUserApps = enabled) }
     }
 
+    fun setAutoCloseSwipedRecents(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CLOSE_SWIPED_RECENTS, enabled).apply()
+        _state.update { it.copy(autoCloseSwipedRecents = enabled) }
+    }
+
+    fun setAutoCloseSwipedOnlyMarked(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_CLOSE_SWIPED_ONLY_MARKED, enabled).apply()
+        _state.update { it.copy(autoCloseSwipedOnlyMarked = enabled) }
+    }
+
     fun setQuickActionNotificationEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_QUICK_ACTION_NOTIF, enabled).apply()
         _state.update { it.copy(quickActionNotificationEnabled = enabled) }
@@ -238,6 +254,11 @@ class AppPreferences(context: Context) {
     fun setLiquidGlassBottomBar(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_LIQUID_GLASS_BOTTOM_BAR, enabled).apply()
         _state.update { it.copy(liquidGlassBottomBar = enabled) }
+    }
+
+    fun setMenuBarTint(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_MENU_BAR_TINT, enabled).apply()
+        _state.update { it.copy(menuBarTint = enabled) }
     }
 
     fun setIncludeSystemApps(include: Boolean) {
@@ -344,6 +365,9 @@ class AppPreferences(context: Context) {
             includeSystemApps = current.includeSystemApps,
             geekExtrasEnabled = current.geekExtrasEnabled,
             forceMaxRefreshRate = current.forceMaxRefreshRate,
+            menuBarTint = current.menuBarTint,
+            autoCloseSwipedRecents = current.autoCloseSwipedRecents,
+            autoCloseSwipedOnlyMarked = current.autoCloseSwipedOnlyMarked,
             defaultTargetBucket = current.defaultTargetBucket.name,
         )
         return json.encodeToString(snapshot)
@@ -394,6 +418,9 @@ class AppPreferences(context: Context) {
             .putBoolean(KEY_INCLUDE_SYSTEM, snapshot.includeSystemApps)
             .putBoolean(KEY_GEEK_EXTRAS, snapshot.geekExtrasEnabled)
             .putBoolean(KEY_FORCE_MAX_REFRESH_RATE, snapshot.forceMaxRefreshRate)
+            .putBoolean(KEY_MENU_BAR_TINT, snapshot.menuBarTint)
+            .putBoolean(KEY_AUTO_CLOSE_SWIPED_RECENTS, snapshot.autoCloseSwipedRecents)
+            .putBoolean(KEY_AUTO_CLOSE_SWIPED_ONLY_MARKED, snapshot.autoCloseSwipedOnlyMarked)
             .putString(KEY_PER_APP_POLICIES, json.encodeToString(sanitizedPolicies))
             .putStringSet(KEY_MANAGED_PACKAGES, effectiveScheduled)
             .apply()
@@ -418,6 +445,9 @@ class AppPreferences(context: Context) {
                 includeSystemApps = snapshot.includeSystemApps,
                 geekExtrasEnabled = snapshot.geekExtrasEnabled,
                 forceMaxRefreshRate = snapshot.forceMaxRefreshRate,
+                menuBarTint = snapshot.menuBarTint,
+                autoCloseSwipedRecents = snapshot.autoCloseSwipedRecents,
+                autoCloseSwipedOnlyMarked = snapshot.autoCloseSwipedOnlyMarked,
                 perAppPolicies = sanitizedPolicies,
                 managedPackages = effectiveScheduled,
             )
@@ -442,12 +472,15 @@ class AppPreferences(context: Context) {
         private const val KEY_AUTO_INTERVAL_MINUTES = "auto_interval_minutes"
         private const val KEY_AUTO_SCREEN_OFF_ONLY = "auto_hibernation_screen_off_only"
         private const val KEY_AUTO_HIBERNATE_ALL_USER = "auto_hibernate_all_user_apps"
+        private const val KEY_AUTO_CLOSE_SWIPED_RECENTS = "auto_close_swiped_recents"
+        private const val KEY_AUTO_CLOSE_SWIPED_ONLY_MARKED = "auto_close_swiped_only_marked"
         private const val KEY_QUICK_ACTION_NOTIF = "quick_action_notification_enabled"
         private const val KEY_GEEK_EXTRAS = "geek_extras_enabled"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
         private const val KEY_FORCE_MAX_REFRESH_RATE = "force_max_refresh_rate"
         private const val KEY_LIQUID_GLASS_BOTTOM_BAR = "liquid_glass_bottom_bar"
+        private const val KEY_MENU_BAR_TINT = "menu_bar_tint"
         private const val KEY_INCLUDE_SYSTEM = "include_system"
         private const val KEY_PER_APP_POLICIES = "per_app_policies"
         private const val KEY_MANAGED_PACKAGES = "managed_packages"

@@ -1,5 +1,7 @@
 package com.greenify.reborn.ui.settings
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -35,12 +38,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.greenify.reborn.BuildConfig
@@ -50,7 +56,10 @@ import com.greenify.reborn.model.ThemeMode
 import com.greenify.reborn.model.WorkingMode
 import com.greenify.reborn.ui.MainUiState
 import com.greenify.reborn.ui.components.GreenifySwitch
+import com.greenify.reborn.ui.components.ObserveScrollCollapse
+import com.greenify.reborn.ui.components.rememberBoundaryBounceOffset
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun SettingsScreen(
     state: MainUiState,
@@ -71,10 +80,13 @@ fun SettingsScreen(
     onAutoIntervalChange: (Int) -> Unit,
     onAutoScreenOffOnlyChange: (Boolean) -> Unit,
     onAutoHibernateAllUserAppsChange: (Boolean) -> Unit,
+    onAutoCloseSwipedRecentsChange: (Boolean) -> Unit,
+    onAutoCloseSwipedOnlyMarkedChange: (Boolean) -> Unit,
     onQuickActionNotifChange: (Boolean) -> Unit,
     onGeekExtrasChange: (Boolean) -> Unit,
     onSelectThemeMode: (ThemeMode) -> Unit,
     onDynamicColorChange: (Boolean) -> Unit,
+    onMenuBarTintChange: (Boolean) -> Unit,
     onForceMaxRefreshRateChange: (Boolean) -> Unit,
     onLiquidGlassBottomBarChange: (Boolean) -> Unit,
     onRequestShizuku: () -> Unit,
@@ -84,6 +96,7 @@ fun SettingsScreen(
     onRequestNotifications: () -> Unit,
     onExportJson: () -> Unit,
     onImportJson: () -> Unit,
+    onBottomBarCollapsedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var showModeDialog by remember { mutableStateOf(false) }
@@ -91,9 +104,20 @@ fun SettingsScreen(
     var showThemeDialog by remember { mutableStateOf(false) }
     var showIntervalDialog by remember { mutableStateOf(false) }
     val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val listState = rememberLazyListState()
+    ObserveScrollCollapse(listState = listState, onCollapseChange = onBottomBarCollapsedChange)
+    val (bounceNestedScroll, bounceOffsetPx) = rememberBoundaryBounceOffset(
+        listState = listState,
+        allowTopDragBounce = true,
+    )
 
+    CompositionLocalProvider(LocalOverscrollFactory provides null) {
     LazyColumn(
-        modifier = modifier.fillMaxSize(),
+        state = listState,
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(bounceNestedScroll)
+            .graphicsLayer { translationY = bounceOffsetPx() },
         contentPadding = PaddingValues(
             start = 16.dp,
             end = 16.dp,
@@ -270,6 +294,22 @@ fun SettingsScreen(
                 )
                 InsetDivider()
                 MiuixSwitchRow(
+                    title = "Auto-Close on Recents Swipe",
+                    subtitle = "Automatically hibernate apps when swiped closed on the Recents screen (Shizuku/Root)",
+                    checked = state.settings.autoCloseSwipedRecents,
+                    onCheckedChange = onAutoCloseSwipedRecentsChange,
+                )
+                if (state.settings.autoCloseSwipedRecents) {
+                    InsetDivider()
+                    MiuixSwitchRow(
+                        title = "Only Close Marked Apps on Swipe",
+                        subtitle = "Limit Recents swipe auto-close to apps opted into Scheduled Naps",
+                        checked = state.settings.autoCloseSwipedOnlyMarked,
+                        onCheckedChange = onAutoCloseSwipedOnlyMarkedChange,
+                    )
+                }
+                InsetDivider()
+                MiuixSwitchRow(
                     title = "Quick Action Notification",
                     subtitle = "Post a status notification with Hibernate Now action after scheduled runs",
                     checked = state.settings.quickActionNotificationEnabled,
@@ -324,6 +364,13 @@ fun SettingsScreen(
                     subtitle = "Tint primary accents from wallpaper while keeping clean surfaces",
                     checked = state.settings.dynamicColor,
                     onCheckedChange = onDynamicColorChange,
+                )
+                InsetDivider()
+                MiuixSwitchRow(
+                    title = "Menu Bar Tint",
+                    subtitle = "Apply theme accent tint to the floating bottom navigation bar",
+                    checked = state.settings.menuBarTint,
+                    onCheckedChange = onMenuBarTintChange,
                 )
                 InsetDivider()
                 MiuixSwitchRow(
@@ -398,6 +445,7 @@ fun SettingsScreen(
                 }
             }
         }
+    }
     }
 
     if (showModeDialog) {

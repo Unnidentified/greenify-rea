@@ -4,4 +4,7 @@
     <string name="channel_hibernation_id">hibernation_summary</string>
     <string name="channel_hibernation_name">Hibernation Status</string>
     <string name="channel_hibernation_desc">Optional summary notifications after automated or tile-triggered hibernation.</string>
+    <string name="channel_swipe_monitor_id">recents_swipe_monitor</string>
+    <string name="channel_swipe_monitor_name">Recents Swipe Auto-Close</string>
+    <string name="channel_swipe_monitor_desc">Lightweight monitor that auto-hibernates apps when swiped closed on the Recents screen.</string>
 </resources>

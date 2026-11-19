@@ -77,15 +77,24 @@ enum class RecentsProtection(val displayName: String) {
 }
 
 @Serializable
+enum class SwipeCloseMode(val displayName: String) {
+    INHERIT("Follow Global"),
+    ALWAYS_CLOSE("Auto-Close on Swipe"),
+    NEVER_CLOSE("Never Auto-Close"),
+}
+
+@Serializable
 data class PerAppPolicy(
     val includeInScheduledNaps: Boolean = false,
     val strategy: HibernationStrategy = HibernationStrategy.GLOBAL_DEFAULT,
     val recentsProtection: RecentsProtection = RecentsProtection.INHERIT,
+    val autoCloseOnSwipe: SwipeCloseMode = SwipeCloseMode.INHERIT,
 ) {
     val isDefault: Boolean
         get() = !includeInScheduledNaps &&
             strategy == HibernationStrategy.GLOBAL_DEFAULT &&
-            recentsProtection == RecentsProtection.INHERIT
+            recentsProtection == RecentsProtection.INHERIT &&
+            autoCloseOnSwipe == SwipeCloseMode.INHERIT
 }
 
 enum class AppOpRestriction(
@@ -258,5 +267,8 @@ data class BackupSnapshot(
     val includeSystemApps: Boolean = false,
     val geekExtrasEnabled: Boolean = false,
     val forceMaxRefreshRate: Boolean = true,
+    val menuBarTint: Boolean = false,
+    val autoCloseSwipedRecents: Boolean = false,
+    val autoCloseSwipedOnlyMarked: Boolean = false,
     val defaultTargetBucket: String = StandbyBucket.RESTRICTED.name,
 )

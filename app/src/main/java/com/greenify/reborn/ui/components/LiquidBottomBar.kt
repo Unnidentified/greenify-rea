@@ -16,8 +16,11 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.VectorConverter
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.MutatorMutex
 import androidx.compose.foundation.border
@@ -74,6 +77,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.addOutline
@@ -109,6 +113,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp as lerpDp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -823,6 +828,8 @@ fun LiquidBottomTabs(
     modifier: Modifier = Modifier,
     isDark: Boolean = isSystemInDarkTheme(),
     enableBlur: Boolean = true,
+    menuBarTint: Boolean = false,
+    collapsed: Boolean = false,
 ) {
     val tabCount = tabs.size.coerceAtLeast(1)
     val density = LocalDensity.current
@@ -830,7 +837,21 @@ fun LiquidBottomTabs(
     val scope = rememberCoroutineScope()
 
     val surfaceContainer = MaterialTheme.colorScheme.surfaceContainerHigh
-    val containerTint = if (enableBlur) surfaceContainer.copy(alpha = 0.40f) else MaterialTheme.colorScheme.surfaceContainer
+    val primaryContainer = MaterialTheme.colorScheme.primaryContainer
+    val tintedSurface = remember(surfaceContainer, primaryContainer, menuBarTint, isDark) {
+        if (menuBarTint) {
+            lerpColor(surfaceContainer, primaryContainer, if (isDark) 0.56f else 0.62f)
+        } else {
+            surfaceContainer
+        }
+    }
+    val containerTint = if (enableBlur) {
+        tintedSurface.copy(alpha = if (menuBarTint) 0.54f else 0.40f)
+    } else if (menuBarTint) {
+        tintedSurface
+    } else {
+        MaterialTheme.colorScheme.surfaceContainer
+    }
     val onSurfaceColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.78f)
     val accentColor = MaterialTheme.colorScheme.primary
     val latestSelectedIndex by rememberUpdatedState(selectedIndex)
@@ -902,17 +923,39 @@ fun LiquidBottomTabs(
         }
     }
 
+    val collapseProgress by animateFloatAsState(
+        targetValue = if (collapsed) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.88f,
+            stiffness = 380f,
+        ),
+        label = "bottomBarCollapse",
+    )
+    // Only record Layer 2 & run Layer 3 glass lens while actively pressing/dragging/switching tabs.
+    // During stationary list scroll this skips 2 full offscreen blur/lens passes per frame.
+    val isGlassLensActive by remember(dampedDrag, selectedIndex) {
+        derivedStateOf {
+            dampedDrag.pressProgress > 0.002f ||
+                abs(dampedDrag.velocityAnim.value) > 0.02f ||
+                abs(dampedDrag.value - selectedIndex.toFloat()) > 0.005f
+        }
+    }
+
     // Root container
     Box(
         modifier = modifier,
         contentAlignment = Alignment.CenterStart,
     ) {
-        val barWidthModifier = Modifier.width((tabs.size * 98).dp.coerceAtLeast(196.dp) + 8.dp)
+        val perTabWidthDp = lerpDp(98.dp, 60.dp, collapseProgress)
+        val minBarWidthDp = lerpDp(196.dp, 120.dp, collapseProgress)
+        val barWidthModifier = Modifier.width((perTabWidthDp * tabCount).coerceAtLeast(minBarWidthDp) + 8.dp)
+        val barHeightDp = lerpDp(64.dp, 50.dp, collapseProgress)
+        val innerHeightDp = lerpDp(56.dp, 42.dp, collapseProgress)
 
         // LAYER 1: Outer floating glass bar + unselected tabs
         Row(
             modifier = barWidthModifier
-                .height(64.dp)
+                .height(barHeightDp)
                 .onSizeChanged { sz ->
                     barWidthPx = sz.width.toFloat()
                     tabWidthPx = ((sz.width.toFloat() - innerPaddingPx * 2f) / tabCount).coerceAtLeast(0f)
@@ -990,16 +1033,17 @@ fun LiquidBottomTabs(
             ) {
                 tabs.forEachIndexed { index, tab ->
                     val isSelected = index == selectedIndex
-                    val itemColor = if (!enableBlur && isSelected) accentColor else onSurfaceColor
+                    val itemColor = if ((!enableBlur || !isGlassLensActive) && isSelected) accentColor else onSurfaceColor
                     CompositionLocalProvider(LocalContentColor provides itemColor) {
                         LiquidBottomTab(
                             item = tab,
                             selected = isSelected,
                             clickable = false,
+                            collapseProgress = collapseProgress,
                             onClick = { onSelectIndex(index) },
                             modifier = Modifier
                                 .weight(1f)
-                                .defaultMinSize(minWidth = 76.dp),
+                                .defaultMinSize(minWidth = lerpDp(76.dp, 48.dp, collapseProgress)),
                         )
                     }
                 }
@@ -1007,14 +1051,14 @@ fun LiquidBottomTabs(
         }
 
         // LAYER 2: Offscreen accent-tinted scaled tabs recorded on transparent background into tabsBackdrop
-        if (enableBlur) {
+        if (enableBlur && isGlassLensActive) {
             CompositionLocalProvider(
                 LocalLiquidTabScale provides tabScaleProvider,
                 LocalContentColor provides accentColor,
             ) {
                 Row(
                     modifier = barWidthModifier
-                        .height(56.dp)
+                        .height(innerHeightDp)
                         .graphicsLayer {
                             translationX = panelOffsetPx
                         }
@@ -1052,10 +1096,11 @@ fun LiquidBottomTabs(
                             item = tab,
                             selected = index == selectedIndex,
                             clickable = false,
+                            collapseProgress = collapseProgress,
                             onClick = {},
                             modifier = Modifier
                                 .weight(1f)
-                                .defaultMinSize(minWidth = 76.dp),
+                                .defaultMinSize(minWidth = lerpDp(76.dp, 48.dp, collapseProgress)),
                         )
                     }
                 }
@@ -1068,12 +1113,12 @@ fun LiquidBottomTabs(
             val indicatorModifier = Modifier
                 .padding(horizontal = 4.dp)
                 .width(tabWidthDp)
-                .height(56.dp)
+                .height(innerHeightDp)
                 .graphicsLayer {
                     translationX = indicatorXOffsetPx()
                 }
 
-            if (enableBlur) {
+            if (enableBlur && isGlassLensActive) {
                 Box(
                     modifier = indicatorModifier.drawGlassPill(
                         backdrop = combinedBackdrop,
@@ -1091,8 +1136,12 @@ fun LiquidBottomTabs(
                             highlight.alphaAnim.value
                             highlight.positionAnim.value
                             val press = dampedDrag.pressProgress
-                            val baseColor = if (!isDark) Color.Black else Color.White
-                            drawRect(baseColor.copy(alpha = 0.10f * (1f - press)))
+                            if (menuBarTint) {
+                                drawRect(primaryContainer.copy(alpha = (if (isDark) 0.28f else 0.34f) * (1f - press * 0.5f)))
+                            } else {
+                                val baseColor = if (!isDark) Color.Black else Color.White
+                                drawRect(baseColor.copy(alpha = 0.10f * (1f - press)))
+                            }
                             drawRect(Color.Black.copy(alpha = 0.03f * press))
                         },
                         shadowRadiusDp = 0.dp,
@@ -1112,8 +1161,8 @@ fun LiquidBottomTabs(
                         },
                         layerTransform = {
                             val speed = abs(dampedDrag.velocityAnim.value) / 10f
-                            val stretchX = (0.50f * speed).coerceIn(0f, 0.07f)
-                            val squashY = (0.20f * speed).coerceIn(0f, 0.05f)
+                            val stretchX = (0.50f * speed).coerceAtLeast(0f).coerceAtMost(0.07f)
+                            val squashY = (0.20f * speed).coerceAtLeast(0f).coerceAtMost(0.05f)
                             scaleX = dampedDrag.scaleXAnim.value / (1f - stretchX)
                             scaleY = dampedDrag.scaleYAnim.value * (1f - squashY)
                         },
@@ -1121,18 +1170,16 @@ fun LiquidBottomTabs(
                 )
             } else {
                 val baseColor = if (!isDark) Color.Black else Color.White
+                val restingTint = if (menuBarTint) {
+                    primaryContainer.copy(alpha = if (isDark) 0.30f else 0.36f)
+                } else {
+                    baseColor.copy(alpha = if (enableBlur) 0.10f else 0.14f)
+                }
                 Box(
                     modifier = indicatorModifier
-                        .graphicsLayer {
-                            val v = dampedDrag.velocityAnim.value / 10f
-                            val stretchX = (0.75f * v).coerceIn(-0.2f, 0.2f)
-                            val squashY = (0.25f * v).coerceIn(-0.2f, 0.2f)
-                            scaleX = dampedDrag.scaleXAnim.value / (1f - stretchX)
-                            scaleY = dampedDrag.scaleYAnim.value * (1f - squashY)
-                        }
                         .clip(CircleShape)
                         .drawBehind {
-                            drawRect(baseColor.copy(alpha = 0.14f))
+                            drawRect(restingTint)
                         },
                 )
             }
@@ -1152,11 +1199,13 @@ private fun LiquidBottomTab(
     item: LiquidTabItem,
     selected: Boolean,
     clickable: Boolean,
+    collapseProgress: Float,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scale = LocalLiquidTabScale.current
     val interactionSource = remember { MutableInteractionSource() }
+    val labelFraction = (1f - collapseProgress * 1.45f).coerceIn(0f, 1f)
     Column(
         modifier = modifier
             .fillMaxHeight()
@@ -1184,16 +1233,21 @@ private fun LiquidBottomTab(
         Icon(
             imageVector = item.icon,
             contentDescription = item.label,
-            modifier = Modifier.size(22.dp),
+            modifier = Modifier.size(lerpDp(22.dp, 23.dp, collapseProgress)),
         )
-        Text(
-            text = item.label,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
-        )
+        if (labelFraction > 0.01f) {
+            Text(
+                text = item.label,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+                modifier = Modifier
+                    .height(14.dp * labelFraction)
+                    .graphicsLayer { alpha = labelFraction },
+            )
+        }
     }
 }
 
@@ -1261,6 +1315,8 @@ private fun Modifier.drawGlassPill(
     var cachedOutlineDir by remember { mutableStateOf<LayoutDirection?>(null) }
     var cachedOutline by remember { mutableStateOf<androidx.compose.ui.graphics.Outline?>(null) }
 
+    var cachedBaseKey by remember { mutableStateOf<Any?>(null) }
+    var cachedBaseRenderEffect by remember { mutableStateOf<RenderEffect?>(null) }
     var cachedEffectKey by remember { mutableStateOf<Any?>(null) }
     var cachedComposeEffect by remember { mutableStateOf<androidx.compose.ui.graphics.RenderEffect?>(null) }
     var cachedInnerShadowRadPx by remember { mutableFloatStateOf(-1f) }
@@ -1369,18 +1425,24 @@ private fun Modifier.drawGlassPill(
                     hasLens,
                 )
                 if (cachedEffectKey != effectKey) {
-                    var renderEffect: RenderEffect? = null
-                    if (cachedColorFilter != null) {
-                        renderEffect = RenderEffect.createColorFilterEffect(cachedColorFilter)
-                    }
-                    if (blurPx > 0.5f) {
-                        val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
-                        renderEffect = if (renderEffect != null) {
-                            RenderEffect.createChainEffect(blur, renderEffect)
-                        } else {
-                            blur
+                    val baseKey = blurPx to vibrancySaturation
+                    if (cachedBaseKey != baseKey) {
+                        var baseEffect: RenderEffect? = null
+                        if (cachedColorFilter != null) {
+                            baseEffect = RenderEffect.createColorFilterEffect(cachedColorFilter)
                         }
+                        if (blurPx > 0.5f) {
+                            val blur = RenderEffect.createBlurEffect(blurPx, blurPx, Shader.TileMode.CLAMP)
+                            baseEffect = if (baseEffect != null) {
+                                RenderEffect.createChainEffect(blur, baseEffect)
+                            } else {
+                                blur
+                            }
+                        }
+                        cachedBaseRenderEffect = baseEffect
+                        cachedBaseKey = baseKey
                     }
+                    var renderEffect: RenderEffect? = cachedBaseRenderEffect
                     if (hasLens && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                         val corner = minOf(w, h) * 0.5f
                         lensShader.setFloatUniform("size", w, h)
