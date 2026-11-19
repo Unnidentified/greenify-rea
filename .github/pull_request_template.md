@@ -17,4 +17,4 @@ Closes #
 
 - [ ] No telemetry, tracking, or proprietary blobs added
 - [ ] Privileged/Shizuku calls remain isolated behind backend interfaces
-- [ ] Updated `CHANGELOG.md` if user-facing behavior changed
+- [ ] Updated `docs/CHANGELOG.md` if user-facing behavior changed
