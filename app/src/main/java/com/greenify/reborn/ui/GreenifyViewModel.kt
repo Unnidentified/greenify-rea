@@ -1,6 +1,7 @@
 package com.greenify.reborn.ui
 
 import android.app.Application
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.greenify.reborn.data.AppPreferences
@@ -90,11 +91,11 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun refreshAll() {
+    fun refreshAll(probeRoot: Boolean = false) {
         viewModelScope.launch {
             _uiState.update { it.copy(isLoadingApps = it.allApps.isEmpty()) }
             val settings = preferences.state.value
-            val env = repository.inspectEnvironment(settings.workingMode)
+            val env = repository.inspectEnvironment(settings.workingMode, probeRoot = probeRoot)
             val snapshot = repository.loadInstalledApps(
                 managedPackages = settings.managedPackages,
                 lastNappedTimestamps = settings.lastNappedTimestamps,
@@ -154,6 +155,7 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
 
     fun setWorkingMode(mode: WorkingMode) {
         preferences.setWorkingMode(mode)
+        refreshAll(probeRoot = mode == WorkingMode.ROOT)
     }
 
     fun setShallowHibernation(enabled: Boolean) {
@@ -188,19 +190,46 @@ class GreenifyViewModel(application: Application) : AndroidViewModel(application
         preferences.setDynamicColor(enabled)
     }
 
+    fun setLiquidGlassBottomBar(enabled: Boolean) {
+        preferences.setLiquidGlassBottomBar(enabled)
+    }
+
     fun setIncludeSystemApps(include: Boolean) {
         preferences.setIncludeSystemApps(include)
     }
 
     fun requestShizukuPermission() {
         runCatching {
-            if (Shizuku.pingBinder() && !Shizuku.isPreV11()) {
-                Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
-            } else {
-                _events.tryEmit("Shizuku service is not running yet.")
+            when {
+                !Shizuku.pingBinder() -> {
+                    _events.tryEmit("Shizuku service is not running yet.")
+                }
+                Shizuku.isPreV11() -> {
+                    _events.tryEmit("Shizuku v11 or newer is required.")
+                }
+                Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED -> {
+                    _events.tryEmit("Shizuku permission already granted.")
+                    refreshAll()
+                }
+                else -> {
+                    Shizuku.requestPermission(SHIZUKU_REQUEST_CODE)
+                }
             }
         }.onFailure {
             _events.tryEmit("Unable to request Shizuku permission: ${it.message}")
+        }
+    }
+
+    fun requestRootPermission() {
+        viewModelScope.launch {
+            val settings = preferences.state.value
+            val env = repository.inspectEnvironment(settings.workingMode, probeRoot = true)
+            _uiState.update { it.copy(environment = env) }
+            if (env.rootAvailable) {
+                _events.tryEmit("Root access verified.")
+            } else {
+                _events.tryEmit("Root access denied or unavailable.")
+            }
         }
     }
 

@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Siesta"
+rootProject.name = "greenify-rea"
 include(":app")

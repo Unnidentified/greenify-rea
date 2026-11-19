@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Siesta</string>
+    <string name="app_name">Greenify</string>
     <string name="tile_hibernate_label">Hibernate Now</string>
     <string name="channel_hibernation_id">hibernation_summary</string>
     <string name="channel_hibernation_name">Hibernation Status</string>

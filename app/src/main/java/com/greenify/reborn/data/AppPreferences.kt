@@ -19,8 +19,9 @@ data class UserSettingsState(
     val shallowHibernation: Boolean = false,
     val autoHibernationEnabled: Boolean = false,
     val autoHibernationIntervalMinutes: Int = 60,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
-    val dynamicColor: Boolean = true,
+    val themeMode: ThemeMode = ThemeMode.FOREST_DARK,
+    val dynamicColor: Boolean = false,
+    val liquidGlassBottomBar: Boolean = true,
     val includeSystemApps: Boolean = false,
     val managedPackages: Set<String> = emptySet(),
     val lastNappedTimestamps: Map<String, Long> = emptyMap(),
@@ -47,7 +48,7 @@ class AppPreferences(context: Context) {
             ?: WorkingMode.AUTO
         val themeMode = prefs.getString(KEY_THEME_MODE, null)
             ?.let { runCatching { ThemeMode.valueOf(it) }.getOrNull() }
-            ?: ThemeMode.SYSTEM
+            ?: ThemeMode.FOREST_DARK
         val managed = prefs.getStringSet(KEY_MANAGED_PACKAGES, null)?.toSet()
             ?: prefs.getStringSet(KEY_LEGACY_GREENIFIED_PACKAGES, emptySet())?.toSet()
             ?: emptySet()
@@ -71,7 +72,8 @@ class AppPreferences(context: Context) {
             autoHibernationIntervalMinutes = prefs.getInt(KEY_AUTO_INTERVAL_MINUTES, 60)
                 .coerceAtLeast(15),
             themeMode = themeMode,
-            dynamicColor = prefs.getBoolean(KEY_DYNAMIC_COLOR, true),
+            dynamicColor = prefs.getBoolean(KEY_DYNAMIC_COLOR, false),
+            liquidGlassBottomBar = prefs.getBoolean(KEY_LIQUID_GLASS_BOTTOM_BAR, true),
             includeSystemApps = prefs.getBoolean(KEY_INCLUDE_SYSTEM, false),
             managedPackages = managed,
             lastNappedTimestamps = timestamps,
@@ -109,6 +111,11 @@ class AppPreferences(context: Context) {
     fun setDynamicColor(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, enabled).apply()
         _state.update { it.copy(dynamicColor = enabled) }
+    }
+
+    fun setLiquidGlassBottomBar(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_LIQUID_GLASS_BOTTOM_BAR, enabled).apply()
+        _state.update { it.copy(liquidGlassBottomBar = enabled) }
     }
 
     fun setIncludeSystemApps(include: Boolean) {
@@ -206,6 +213,7 @@ class AppPreferences(context: Context) {
         private const val KEY_AUTO_INTERVAL_MINUTES = "auto_interval_minutes"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
+        private const val KEY_LIQUID_GLASS_BOTTOM_BAR = "liquid_glass_bottom_bar"
         private const val KEY_INCLUDE_SYSTEM = "include_system"
         private const val KEY_MANAGED_PACKAGES = "managed_packages"
         private const val KEY_LEGACY_GREENIFIED_PACKAGES = "greenified_packages"

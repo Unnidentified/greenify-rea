@@ -6,27 +6,26 @@ import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,12 +34,16 @@ import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.greenify.reborn.model.EnvironmentStatus
+import com.greenify.reborn.model.ResolvedBackend
 import com.greenify.reborn.model.StandbyBucket
 import com.greenify.reborn.model.WorkingMode
 import kotlinx.coroutines.Dispatchers
@@ -69,14 +72,14 @@ fun AppIconImage(
             contentDescription = contentDescription,
             modifier = modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(12.dp)),
+                .clip(RoundedCornerShape(13.dp)),
         )
     } else {
         Box(
             modifier = modifier
                 .size(44.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(MaterialTheme.colorScheme.surfaceVariant),
+                .clip(RoundedCornerShape(13.dp))
+                .background(MaterialTheme.colorScheme.surfaceContainerHigh),
         )
     }
 }
@@ -95,7 +98,7 @@ private fun drawableToBitmap(drawable: Drawable): Bitmap {
 }
 
 /**
- * Shown on Home ONLY when the active working mode's backend is down or degraded.
+ * Miuix-style flat squircle card shown ONLY when the active mode's backend is degraded.
  */
 @Composable
 fun DegradedBackendCard(
@@ -115,62 +118,60 @@ fun DegradedBackendCard(
         environment.shizukuRunning && !environment.shizukuPermissionGranted &&
             (preferredMode == WorkingMode.AUTO || preferredMode == WorkingMode.SHIZUKU) -> {
             title = "Shizuku permission needed"
-            subtitle = "Shizuku is running, but Siesta needs permission to put apps to sleep."
+            subtitle = "Grant Shizuku access to enable one-tap naps"
             actionLabel = "Grant"
             onFix = onRequestShizuku
         }
 
         environment.shizukuInstalled && !environment.shizukuRunning &&
             (preferredMode == WorkingMode.AUTO || preferredMode == WorkingMode.SHIZUKU) -> {
-            title = "Shizuku service is stopped"
-            subtitle = "Start Shizuku via Wireless Debugging to restore one-tap naps."
-            actionLabel = "Open Shizuku"
+            title = "Shizuku is not running"
+            subtitle = "Start Shizuku via Wireless Debugging"
+            actionLabel = "Open"
             onFix = onOpenShizukuApp
         }
 
         preferredMode == WorkingMode.ROOT && !environment.rootAvailable -> {
-            title = "Root access unavailable"
-            subtitle = "No su binary detected. Switch working mode or grant root."
+            title = "Root unavailable"
+            subtitle = "No su binary detected for Root mode"
             actionLabel = "Settings"
             onFix = onOpenSettings
         }
 
         else -> {
             title = "Nap engine degraded"
-            subtitle = "Neither Shizuku nor Root is active for ${preferredMode.displayName} mode."
-            actionLabel = "Fix in Settings"
+            subtitle = "Neither Shizuku nor Root is active"
+            actionLabel = "Fix"
             onFix = onOpenSettings
         }
     }
 
-    ElevatedCard(
-        modifier = modifier.fillMaxWidth(),
-        colors = CardDefaults.elevatedCardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
-            contentColor = MaterialTheme.colorScheme.onErrorContainer,
-        ),
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onFix),
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.errorContainer,
+        contentColor = MaterialTheme.colorScheme.onErrorContainer,
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.16f),
-                modifier = Modifier.size(38.dp),
+            Icon(
+                imageVector = Icons.Outlined.ErrorOutline,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.ErrorOutline,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
                     style = MaterialTheme.typography.titleSmall,
@@ -179,17 +180,89 @@ fun DegradedBackendCard(
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.88f),
+                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.85f),
                 )
             }
-            Button(
-                onClick = onFix,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = MaterialTheme.colorScheme.error,
-                    contentColor = MaterialTheme.colorScheme.onError,
-                ),
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.error,
+                contentColor = MaterialTheme.colorScheme.onError,
             ) {
-                Text(actionLabel)
+                Text(
+                    text = actionLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun AllSetBackendCard(
+    environment: EnvironmentStatus,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val subtitle = when (environment.resolvedBackend) {
+        ResolvedBackend.SHIZUKU -> "Shizuku service authorized and ready for background naps."
+        ResolvedBackend.ROOT -> "Root (su) verified and ready for deep hibernation."
+        ResolvedBackend.NON_ROOT -> "Standard mode active. Manage standby apps from Settings."
+    }
+
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val containerColor = if (isDark) Color(0xFF113322) else Color(0xFFD7F4E3)
+    val contentColor = if (isDark) Color(0xFFC5F7D9) else Color(0xFF002112)
+    val accentColor = if (isDark) Color(0xFF4CD985) else Color(0xFF0D8450)
+    val onAccentColor = if (isDark) Color(0xFF00381E) else Color(0xFFFFFFFF)
+
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        color = containerColor,
+        contentColor = contentColor,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.CheckCircle,
+                contentDescription = null,
+                tint = accentColor,
+                modifier = Modifier.size(24.dp),
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                Text(
+                    text = "All set",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = contentColor.copy(alpha = 0.85f),
+                )
+            }
+            Surface(
+                shape = RoundedCornerShape(50),
+                color = accentColor,
+                contentColor = onAccentColor,
+            ) {
+                Text(
+                    text = environment.resolvedBackend.displayName,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp),
+                )
             }
         }
     }
@@ -205,20 +278,20 @@ fun StandbyBucketChip(
     val container = when (bucket) {
         StandbyBucket.ACTIVE -> MaterialTheme.colorScheme.errorContainer
         StandbyBucket.WORKING_SET -> MaterialTheme.colorScheme.tertiaryContainer
-        StandbyBucket.FREQUENT, StandbyBucket.RARE -> MaterialTheme.colorScheme.secondaryContainer
+        StandbyBucket.FREQUENT, StandbyBucket.RARE -> MaterialTheme.colorScheme.surfaceContainerHigh
         StandbyBucket.RESTRICTED -> MaterialTheme.colorScheme.primaryContainer
-        StandbyBucket.EXEMPTED, StandbyBucket.UNKNOWN -> MaterialTheme.colorScheme.surfaceVariant
+        StandbyBucket.EXEMPTED, StandbyBucket.UNKNOWN -> MaterialTheme.colorScheme.surfaceContainerHigh
     }
     val content = when (bucket) {
         StandbyBucket.ACTIVE -> MaterialTheme.colorScheme.onErrorContainer
         StandbyBucket.WORKING_SET -> MaterialTheme.colorScheme.onTertiaryContainer
-        StandbyBucket.FREQUENT, StandbyBucket.RARE -> MaterialTheme.colorScheme.onSecondaryContainer
+        StandbyBucket.FREQUENT, StandbyBucket.RARE -> MaterialTheme.colorScheme.onSurfaceVariant
         StandbyBucket.RESTRICTED -> MaterialTheme.colorScheme.onPrimaryContainer
         StandbyBucket.EXEMPTED, StandbyBucket.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
     }
     Surface(
         modifier = modifier,
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(50),
         color = container,
     ) {
         Text(
@@ -227,34 +300,84 @@ fun StandbyBucketChip(
             color = content,
             maxLines = 1,
             softWrap = false,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 3.dp),
         )
     }
 }
 
+/**
+ * Borderless Miuix-style pill search input.
+ */
 @Composable
-fun SearchField(
+fun MiuixSearchBar(
     query: String,
     onQueryChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = modifier.fillMaxWidth(),
-        placeholder = { Text(placeholder) },
-        leadingIcon = {
-            Icon(imageVector = Icons.Outlined.Search, contentDescription = null)
-        },
-        trailingIcon = {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(46.dp),
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                if (query.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                BasicTextField(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        color = MaterialTheme.colorScheme.onSurface,
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(imageVector = Icons.Outlined.Close, contentDescription = "Clear search")
+                IconButton(
+                    onClick = { onQueryChange("") },
+                    modifier = Modifier.size(28.dp),
+                ) {
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f),
+                        modifier = Modifier.size(20.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Clear search",
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(13.dp),
+                            )
+                        }
+                    }
                 }
             }
-        },
-        singleLine = true,
-        shape = RoundedCornerShape(16.dp),
-    )
+        }
+    }
 }

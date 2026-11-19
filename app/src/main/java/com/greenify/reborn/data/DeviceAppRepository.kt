@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import rikka.shizuku.Shizuku
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 data class LoadedAppsSnapshot(
     val apps: List<AppEntry>,
@@ -32,14 +33,23 @@ data class LoadedAppsSnapshot(
 
 class DeviceAppRepository(private val context: Context) {
 
-    suspend fun inspectEnvironment(preferredMode: WorkingMode): EnvironmentStatus =
+    @Volatile
+    private var rootProbeGranted: Boolean = false
+
+    suspend fun inspectEnvironment(
+        preferredMode: WorkingMode,
+        probeRoot: Boolean = false,
+    ): EnvironmentStatus =
         withContext(Dispatchers.IO) {
             val shizukuInstalled = isPackageInstalled("moe.shizuku.privileged.api")
             val shizukuRunning = runCatching { Shizuku.pingBinder() }.getOrDefault(false)
             val shizukuGranted = shizukuRunning && runCatching {
                 Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED
             }.getOrDefault(false)
-            val rootAvailable = hasSuBinary()
+            if (probeRoot || preferredMode == WorkingMode.ROOT) {
+                rootProbeGranted = verifySuExecution()
+            }
+            val rootAvailable = rootProbeGranted || hasSuBinary()
             val usageAccessGranted = hasUsageStatsPermission()
             val notificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.checkSelfPermission(
@@ -191,17 +201,51 @@ class DeviceAppRepository(private val context: Context) {
     }.getOrDefault(false)
 
     private fun hasSuBinary(): Boolean {
+        val pathDirs = System.getenv("PATH")
+            ?.split(':')
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
         val candidates = listOf(
             "/system/bin/su",
             "/system/xbin/su",
             "/sbin/su",
+            "/debug_ramdisk/su",
+            "/vendor/bin/su",
             "/su/bin/su",
             "/data/adb/ksu/bin/su",
             "/data/adb/ap/bin/su",
             "/data/adb/magisk/su",
-        )
-        return candidates.any { File(it).exists() }
+        ) + pathDirs.map { "$it/su" }
+        if (candidates.any { File(it).exists() }) return true
+
+        // Some root managers (KernelSU / SukiSU-Nova) expose su only via shell $PATH or kernel hook
+        return runCatching {
+            val process = ProcessBuilder("sh", "-c", "command -v su")
+                .redirectErrorStream(true)
+                .start()
+            val finished = process.waitFor(1_500L, TimeUnit.MILLISECONDS)
+            if (!finished) {
+                process.destroyForcibly()
+                false
+            } else {
+                process.exitValue() == 0
+            }
+        }.getOrDefault(false)
     }
+
+    private fun verifySuExecution(): Boolean = runCatching {
+        val process = ProcessBuilder("su", "-c", "id")
+            .redirectErrorStream(true)
+            .start()
+        val finished = process.waitFor(3_000L, TimeUnit.MILLISECONDS)
+        if (!finished) {
+            process.destroyForcibly()
+            false
+        } else {
+            val output = process.inputStream.bufferedReader().use { it.readText() }
+            process.exitValue() == 0 && output.contains("uid=0")
+        }
+    }.getOrDefault(false)
 
     private fun resolveStandbyBucket(
         usageStatsManager: UsageStatsManager?,

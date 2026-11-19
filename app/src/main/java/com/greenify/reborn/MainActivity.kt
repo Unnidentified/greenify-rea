@@ -15,25 +15,28 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -41,12 +44,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.greenify.reborn.model.ThemeMode
 import com.greenify.reborn.ui.GreenifyViewModel
+import com.greenify.reborn.ui.components.LiquidBottomTabs
+import com.greenify.reborn.ui.components.LiquidTabItem
+import com.greenify.reborn.ui.components.recordLayerBackdrop
+import com.greenify.reborn.ui.components.rememberLayerBackdrop
 import com.greenify.reborn.ui.home.HibernationScreen
 import com.greenify.reborn.ui.settings.SettingsScreen
 import com.greenify.reborn.ui.theme.GreenifyRebornTheme
@@ -62,6 +71,14 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: GreenifyViewModel by viewModels()
 
+    private val shizukuBinderReceivedListener = Shizuku.OnBinderReceivedListener {
+        viewModel.refreshAll()
+    }
+
+    private val shizukuBinderDeadListener = Shizuku.OnBinderDeadListener {
+        viewModel.refreshAll()
+    }
+
     private val shizukuPermissionListener = Shizuku.OnRequestPermissionResultListener { requestCode, grantResult ->
         if (requestCode == GreenifyViewModel.SHIZUKU_REQUEST_CODE) {
             if (grantResult == PackageManager.PERMISSION_GRANTED) {
@@ -76,15 +93,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        runCatching { Shizuku.addBinderReceivedListenerSticky(shizukuBinderReceivedListener) }
+        runCatching { Shizuku.addBinderDeadListener(shizukuBinderDeadListener) }
         runCatching { Shizuku.addRequestPermissionResultListener(shizukuPermissionListener) }
 
         setContent {
             val state by viewModel.uiState.collectAsStateWithLifecycle()
-            val darkTheme = when (state.settings.themeMode) {
-                ThemeMode.SYSTEM -> isSystemInDarkTheme()
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK -> true
-            }
+            val darkTheme = state.settings.themeMode.resolveDarkTheme(isSystemInDarkTheme())
             DisposableEffect(darkTheme) {
                 enableEdgeToEdge(
                     statusBarStyle = SystemBarStyle.auto(
@@ -92,8 +107,8 @@ class MainActivity : ComponentActivity() {
                         android.graphics.Color.TRANSPARENT,
                     ) { darkTheme },
                     navigationBarStyle = SystemBarStyle.auto(
-                        android.graphics.Color.argb(0xe6, 0xFF, 0xFF, 0xFF),
-                        android.graphics.Color.argb(0x80, 0x1b, 0x1b, 0x1b),
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
                     ) { darkTheme },
                 )
                 onDispose {}
@@ -102,8 +117,9 @@ class MainActivity : ComponentActivity() {
                 themeMode = state.settings.themeMode,
                 dynamicColor = state.settings.dynamicColor,
             ) {
-                SiestaShell(
+                GreenifyReaShell(
                     viewModel = viewModel,
+                    darkTheme = darkTheme,
                     onOpenAppInfo = { pkg -> openSystemAppInfo(pkg) },
                     onOpenUsageAccess = { openUsageAccessSettings() },
                     onOpenShizukuApp = { openShizukuApp() },
@@ -118,6 +134,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        runCatching { Shizuku.removeBinderReceivedListener(shizukuBinderReceivedListener) }
+        runCatching { Shizuku.removeBinderDeadListener(shizukuBinderDeadListener) }
         runCatching { Shizuku.removeRequestPermissionResultListener(shizukuPermissionListener) }
         super.onDestroy()
     }
@@ -131,6 +149,12 @@ class MainActivity : ComponentActivity() {
 
     private fun openUsageAccessSettings() {
         runCatching {
+            startActivity(
+                Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS).apply {
+                    data = Uri.fromParts("package", packageName, null)
+                },
+            )
+        }.recoverCatching {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }.onFailure {
             viewModel.emitMessage("Unable to open Usage Access settings.")
@@ -147,10 +171,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun SiestaShell(
+private fun GreenifyReaShell(
     viewModel: GreenifyViewModel,
+    darkTheme: Boolean,
     onOpenAppInfo: (String) -> Unit,
     onOpenUsageAccess: () -> Unit,
     onOpenShizukuApp: () -> Unit,
@@ -158,7 +182,18 @@ private fun SiestaShell(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     var currentTab by remember { mutableStateOf(TopTab.HOME) }
+    val pagerState = rememberPagerState(initialPage = currentTab.ordinal, pageCount = { TopTab.entries.size })
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(currentTab) {
+        if (pagerState.currentPage != currentTab.ordinal) {
+            pagerState.animateScrollToPage(currentTab.ordinal)
+        }
+    }
+    val screenBackdrop = rememberLayerBackdrop()
+    val liquidTabs = remember {
+        TopTab.entries.map { LiquidTabItem(label = it.label, icon = it.icon) }
+    }
 
     val notificationLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
@@ -211,38 +246,27 @@ private fun SiestaShell(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        when (currentTab) {
-                            TopTab.HOME -> "Siesta"
-                            TopTab.SETTINGS -> "Settings"
-                        },
-                    )
-                },
-                actions = {
-                    if (currentTab == TopTab.HOME) {
-                        IconButton(onClick = { viewModel.refreshAll() }) {
-                            Icon(
-                                imageVector = Icons.Outlined.Refresh,
-                                contentDescription = "Refresh app list",
-                            )
-                        }
-                    }
-                },
+        containerColor = MaterialTheme.colorScheme.background,
+        snackbarHost = {
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.padding(bottom = 86.dp),
             )
         },
-        snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         floatingActionButton = {
             AnimatedVisibility(visible = currentTab == TopTab.HOME && state.managedApps.isNotEmpty()) {
                 ExtendedFloatingActionButton(
                     onClick = { viewModel.hibernateAll() },
+                    shape = RoundedCornerShape(50),
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.padding(bottom = 82.dp),
                     icon = {
                         if (state.isHibernating) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
+                                color = MaterialTheme.colorScheme.onPrimary,
                             )
                         } else {
                             Icon(Icons.Outlined.Bedtime, contentDescription = null)
@@ -254,53 +278,76 @@ private fun SiestaShell(
                 )
             }
         },
-        bottomBar = {
-            NavigationBar {
-                TopTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = currentTab == tab,
-                        onClick = { currentTab = tab },
-                        icon = { Icon(tab.icon, contentDescription = tab.label) },
-                        label = { Text(tab.label) },
-                    )
+    ) { innerPadding ->
+        Box(modifier = Modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .recordLayerBackdrop(screenBackdrop)
+                    .background(MaterialTheme.colorScheme.background)
+                    .statusBarsPadding(),
+            ) {
+                val contentModifier = Modifier.padding(bottom = innerPadding.calculateBottomPadding() * 0f)
+                HorizontalPager(
+                    state = pagerState,
+                    beyondViewportPageCount = 1,
+                    userScrollEnabled = false,
+                    modifier = Modifier.fillMaxSize(),
+                ) { page ->
+                    when (TopTab.entries[page]) {
+                        TopTab.HOME -> HibernationScreen(
+                            state = state,
+                            onRefresh = viewModel::refreshAll,
+                            onQueryChange = viewModel::updateHomeQuery,
+                            onFilterChange = viewModel::updateHomeFilter,
+                            onIncludeSystemToggle = viewModel::setIncludeSystemApps,
+                            onRequestShizuku = viewModel::requestShizukuPermission,
+                            onOpenShizukuApp = onOpenShizukuApp,
+                            onOpenSettings = { currentTab = TopTab.SETTINGS },
+                            onHibernateSingle = viewModel::hibernateSingle,
+                            onToggleManaged = viewModel::toggleManaged,
+                            onOpenAppInfo = { onOpenAppInfo(it.packageName) },
+                            modifier = contentModifier,
+                        )
+
+                        TopTab.SETTINGS -> SettingsScreen(
+                            state = state,
+                            onSelectWorkingMode = viewModel::setWorkingMode,
+                            onShallowChange = viewModel::setShallowHibernation,
+                            onAutoHibernationChange = viewModel::setAutoHibernation,
+                            onAutoIntervalChange = viewModel::setAutoHibernationInterval,
+                            onSelectThemeMode = viewModel::setThemeMode,
+                            onDynamicColorChange = viewModel::setDynamicColor,
+                            onLiquidGlassBottomBarChange = viewModel::setLiquidGlassBottomBar,
+                            onRequestShizuku = viewModel::requestShizukuPermission,
+                            onOpenShizukuApp = onOpenShizukuApp,
+                            onRequestRoot = viewModel::requestRootPermission,
+                            onOpenUsageAccessSettings = onOpenUsageAccess,
+                            onRequestNotifications = {
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            },
+                            onExportJson = { exportLauncher.launch("greenify-rea-backup.json") },
+                            onImportJson = { importLauncher.launch(arrayOf("application/json", "*/*")) },
+                            modifier = contentModifier,
+                        )
+                    }
                 }
             }
-        },
-    ) { innerPadding ->
-        val contentModifier = Modifier.padding(innerPadding)
-        when (currentTab) {
-            TopTab.HOME -> HibernationScreen(
-                state = state,
-                onQueryChange = viewModel::updateHomeQuery,
-                onFilterChange = viewModel::updateHomeFilter,
-                onIncludeSystemToggle = viewModel::setIncludeSystemApps,
-                onRequestShizuku = viewModel::requestShizukuPermission,
-                onOpenShizukuApp = onOpenShizukuApp,
-                onOpenSettings = { currentTab = TopTab.SETTINGS },
-                onHibernateSingle = viewModel::hibernateSingle,
-                onToggleManaged = viewModel::toggleManaged,
-                onOpenAppInfo = { onOpenAppInfo(it.packageName) },
-                modifier = contentModifier,
-            )
 
-            TopTab.SETTINGS -> SettingsScreen(
-                state = state,
-                onSelectWorkingMode = viewModel::setWorkingMode,
-                onShallowChange = viewModel::setShallowHibernation,
-                onAutoHibernationChange = viewModel::setAutoHibernation,
-                onAutoIntervalChange = viewModel::setAutoHibernationInterval,
-                onSelectThemeMode = viewModel::setThemeMode,
-                onDynamicColorChange = viewModel::setDynamicColor,
-                onRequestShizuku = viewModel::requestShizukuPermission,
-                onOpenUsageAccessSettings = onOpenUsageAccess,
-                onRequestNotifications = {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                        notificationLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                    }
-                },
-                onExportJson = { exportLauncher.launch("siesta-backup.json") },
-                onImportJson = { importLauncher.launch(arrayOf("application/json", "*/*")) },
-                modifier = contentModifier,
+            // Liquid Glass floating bottom bar with AGSL lens refraction, chromatic dispersion & damped drag
+            LiquidBottomTabs(
+                selectedIndex = currentTab.ordinal,
+                onSelectIndex = { currentTab = TopTab.entries[it] },
+                backdrop = screenBackdrop,
+                tabs = liquidTabs,
+                isDark = darkTheme,
+                enableBlur = state.settings.liquidGlassBottomBar,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(bottom = 12.dp),
             )
         }
     }

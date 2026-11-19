@@ -1,9 +1,14 @@
 package com.greenify.reborn.engine
 
 import com.greenify.reborn.data.DeviceAppRepository
+import com.greenify.reborn.data.UserSettingsState
+import com.greenify.reborn.model.EnvironmentStatus
 import com.greenify.reborn.model.ResolvedBackend
+import com.greenify.reborn.model.ThemeMode
 import com.greenify.reborn.model.WorkingMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ShellCommandBuilderTest {
@@ -77,5 +82,31 @@ class ShellCommandBuilderTest {
             ResolvedBackend.NON_ROOT,
             DeviceAppRepository.resolveBackend(WorkingMode.SHIZUKU, shizukuReady = false, rootAvailable = true),
         )
+    }
+
+    @Test
+    fun `default theme is forest dark and theme polarity resolves properly`() {
+        assertEquals(ThemeMode.FOREST_DARK, UserSettingsState().themeMode)
+        assertFalse(UserSettingsState().dynamicColor)
+        assertTrue(ThemeMode.FOREST_DARK.resolveDarkTheme(systemDark = false))
+        assertTrue(ThemeMode.MIDNIGHT_DARK.resolveDarkTheme(systemDark = false))
+        assertFalse(ThemeMode.SAGE_LIGHT.resolveDarkTheme(systemDark = true))
+        assertFalse(ThemeMode.MIST_LIGHT.resolveDarkTheme(systemDark = true))
+    }
+
+    @Test
+    fun `degraded status clears once preferred backend is granted`() {
+        val shizukuGranted = EnvironmentStatus(
+            shizukuInstalled = true,
+            shizukuRunning = true,
+            shizukuPermissionGranted = true,
+            rootAvailable = false,
+            usageAccessGranted = false,
+            notificationsGranted = false,
+            resolvedBackend = ResolvedBackend.SHIZUKU,
+        )
+        assertFalse(shizukuGranted.isBackendDegraded(WorkingMode.AUTO))
+        assertFalse(shizukuGranted.isBackendDegraded(WorkingMode.SHIZUKU))
+        assertTrue(shizukuGranted.isBackendDegraded(WorkingMode.ROOT))
     }
 }

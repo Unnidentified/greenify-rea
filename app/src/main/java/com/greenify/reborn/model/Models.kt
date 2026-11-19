@@ -19,6 +19,16 @@ enum class ThemeMode(val displayName: String) {
     SYSTEM("Follow System"),
     LIGHT("Light"),
     DARK("Dark"),
+    SAGE_LIGHT("Sage Light"),
+    FOREST_DARK("Forest Dark"),
+    MIST_LIGHT("Mist Light"),
+    MIDNIGHT_DARK("Midnight Dark");
+
+    fun resolveDarkTheme(systemDark: Boolean): Boolean = when (this) {
+        SYSTEM -> systemDark
+        LIGHT, SAGE_LIGHT, MIST_LIGHT -> false
+        DARK, FOREST_DARK, MIDNIGHT_DARK -> true
+    }
 }
 
 enum class StandbyBucket(val label: String) {
