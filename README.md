@@ -1,105 +1,94 @@
-<table>
-  <tr>
-    <td align="center" valign="middle" width="190">
-      <div align="center">
-        <img src="assets/icon.svg" width="88" height="88" alt="Greenify icon"><br><br>
-        <strong>greenify-rea</strong>
-      </div>
-    </td>
-    <td align="center" valign="middle">
-      <p align="center">
-        <a href="https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml"><img src="https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml/badge.svg" alt="Android CI"></a>
-        <a href="https://github.com/Unnidentified/greenify-rea/releases"><img src="https://img.shields.io/github/v/release/Unnidentified/greenify-rea?include_prereleases" alt="Latest Release"></a>
-        <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
-        <img src="https://img.shields.io/badge/Android-12%E2%80%9316%2B-3DDC84" alt="Android 12-16+">
-      </p>
-      <p align="center">
-        Clean-room, open-source Kotlin &amp; Jetpack Compose reimagining of Android app hibernation for modern Android (12–16+) — with dual Shizuku &amp; Root (<code>su</code> / KernelSU / SukiSU / Magisk) authorization, Recents &amp; active audio protection, per-app &amp; batch wake-up service cut-offs, raw engine logs, and a Liquid Glass UI.
-      </p>
-    </td>
-  </tr>
-</table>
+# <img src="assets/icon.svg" width="85" height="85" align="absmiddle" alt="greenify-rea icon" /> greenify-rea
+
+[![Android CI](https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml/badge.svg)](https://github.com/Unnidentified/greenify-rea/actions/workflows/android-ci.yml)
+[![Latest Release](https://img.shields.io/github/v/release/Unnidentified/greenify-rea?include_prereleases)](https://github.com/Unnidentified/greenify-rea/releases)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+![Android 12–16+](https://img.shields.io/badge/Android-12%E2%80%9316%2B-3DDC84)
+
+Open-source Android app hibernation tool for Android 12+, built from scratch in Kotlin and Jetpack Compose. See [requirements](#requirements) first.
+
+When you nap an app, Android stops its background processes and moves it into a stricter Standby Bucket so it stays quiet until you open it again. You can trigger a nap with one tap beside the search bar, run scheduled passes with `WorkManager`, or let the Recents monitor force-stop apps right when you swipe them away.
+
+You do not need Android Studio to try it. Grab the signed APK from [Releases](https://github.com/Unnidentified/greenify-rea/releases/latest) or download a CI build from the [Actions](https://github.com/Unnidentified/greenify-rea/actions) tab.
 
 ---
 
-## Why greenify-rea?
+## Why this exists
 
-Legacy Android hibernation tools accumulated architectural bottlenecks and modern Android incompatibilities over time:
-- **O(N²) Shizuku force-stop loops** and redundant per-PID kill commands.
-- **Android 12–16+ breakages** around `IntentService`, untyped `startForeground()`, `AlarmManager` wake-locks, and Background Activity Launch (BAL) restrictions.
-- **No Recents / active audio guard** — hibernating cached apps still open in Recents or actively playing music.
-- **Deprecated UI & telemetry** built on light-only `PreferenceActivity` screens and analytics SDKs.
+Old Android hibernation apps ran into two walls on modern Android versions:
 
-**greenify-rea** (installed as **Greenify**) rebuilds the workflow cleanly in Kotlin + Jetpack Compose with **zero telemetry**, **dual Shizuku & Root first-class support**, and **Android 12–16+** compliance.
+- **Slow kill loops:** Legacy tools fired separate `am force-stop` and per-PID `kill -9` commands in nested `O(N^2)` loops over Shizuku, locking up on large app lists.
+- **Modern API breakages:** Background `IntentService` calls, untyped foreground services, legacy `AlarmManager` wakeups, and Background Activity Launches all break on Android 12 through 16+.
+- **Missing media guards:** Stopping every background package blindly kills music players or apps you left open in Recents on purpose.
+- **Telemetry and dated UI:** Many older builds ship analytics SDKs and light-only preference screens.
 
-## Key Features
+`greenify-rea` (installed as **Greenify**) replaces that stack in Kotlin and Jetpack Compose with linear `O(N)` command batching, modern Android background APIs, and zero telemetry.
 
-- **Miuix-Inspired UI, Elastic Bounce & Liquid Glass Navigation:**
-  - Floating **Liquid Glass** bottom capsule bar with interactive drag/tap switching, capsule rim refraction, and optional toggle back to a solid bar.
-  - **7 Built-In Themes:** **Follow System** (default on first install), **Forest Dark**, **Sage Light**, **Mist Light**, **Midnight Dark**, **Light**, and **Dark**, plus **Dynamic Accent (Monet)** enabled by default.
-  - Smooth spring overscroll bounce and pull-to-refresh with live loading indicator.
-- **Composable Stackable Filters & Batch Selector:**
-  - Stackable filter pills (**User**, **System**, **Awake**, **Napping**, **In Recents**, **Wake-ups**, **Configured**) that layer together with at least one filter always active.
-  - **Single-tap** any app for detailed adjustments, AppOps restrictions, individual wake-up service/receiver cut-offs, and wake logs.
-  - **Long-press** or tap the checklist icon to enter **Batch Selector** mode (with **Select All**, batch hibernation, batch policy & AppOps adjustments, category wake-up cut-offs, and combined wake logs).
-- **Recents & Active Audio Player Protection:**
-  - Automatically detects apps currently open in the Android **Recents** screen (`dumpsys activity recents`) and active **audio/media players** (`dumpsys media_session`, `dumpsys audio`, `AudioManager`), shielding them from hibernation while open (configurable globally and per-app).
-- **Dual Privileges, Full Greenify Settings & Raw Engine Logs:**
-  - Grant both **Shizuku** and **Root (`su`)** independently and switch **Working Mode** (`Auto`, `Shizuku`, `Root (su)`, `Non-Root`) at any time.
-  - Complete modern configuration: Shallow Naps, Target Standby Bucket, Ignore Background-Free, Scheduled Naps (`WorkManager` + Screen-Off-only option), Quick Action Notification, System Apps, Extras for Geek, JSON Backup/Restore, and a full **Raw Engine Logs** viewer in Settings with one-tap **Copy All**.
-- **Quick Settings Tile:** One-tap *Hibernate Now* tile directly in the Android Quick Settings shade.
-- **Privacy First:** Zero Firebase, zero Crashlytics, zero ad/analytics SDKs, and modern Android backup rules.
+## How it works under the hood
 
-## Tech Stack
+| Part | What it does | Implementation notes |
+|---|---|---|
+| Command builder | Turns your app list and per-app rules into linear `O(N)` shell calls | `ShellCommandBuilder` emits `am force-stop --user` and `am set-standby-bucket --user`, skipping protected system packages and `EXEMPT` apps |
+| Privilege backends | Executes batched commands over one channel | Runs via Shizuku (`ShizukuUserService` AIDL) or a single Root (`su`) shell session without spawning a new shell per app |
+| Recents & Audio guard | Keeps music and open Recents tasks alive during a nap | Reads `dumpsys activity recents`, `dumpsys media_session`, `dumpsys audio`, and `AudioManager` before building the stop list |
+| Recents swipe monitor | Closes swiped-away apps automatically | `RecentsSwipeMonitorService` compares `dumpsys activity recents` snapshots (gated by `UsageStatsManager` transitions and a 650ms trampoline debounce) |
+| AppOps & components | Cuts off wakeups without uninstalling apps | Uses `cmd appops` (`RUN_ANY_IN_BACKGROUND`, `WAKE_LOCK`, `START_FOREGROUND`, `SCHEDULE_EXACT_ALARM`) and `pm disable-user` / `pm enable` per component |
+| Wake-up tracker | Shows why an app woke back up | Correlates `UsageStatsManager` events and `ApplicationExitInfo` inside the per-app sheet and batch wake logs |
+| UI & graphics | Keeps scrolling responsive at 120–165Hz | Single-activity Compose UI (`Home` + `Settings`), AGSL RenderEffect blur/refraction with idle pass gating, `6 MiB` capped `AppIconCache`, and `FlowyBottomSheet` overlays |
 
-- **Language:** Kotlin 2.4 (`JVM 21`)
-- **UI:** Jetpack Compose, Material 3, Custom Liquid Glass RenderEffect shaders (`AGSL`)
-- **Concurrency & Scheduling:** Kotlin Coroutines, `WorkManager`
-- **Privileged Backends:** Shizuku (`dev.rikka.shizuku:api` & `provider` + `ShizukuProvider`), Root (`su` single-session batched commands), `UsageStatsManager`, `cmd appops`, `pm disable-user`
-- **SDK Targets:** `minSdk 31` (Android 12) · `targetSdk 36` · `compileSdk 36`
+### Per-app rules and Recents swipe-close
 
-## Building Locally
+Tapping any app opens an in-window drawer (`FlowyBottomSheet`) with three tabs (`Adjustments`, `Wake Services`, `Wake Logs`). Inside Adjustments you can pick a hibernation mode (`Global Default`, `Deep Force-Stop`, `Shallow Standby`, `Exempt`), override Recents/Audio protection, set **Auto-Close on Recents Swipe** (`Follow Global`, `Auto-Close on Swipe`, `Never Auto-Close`), change the Standby Bucket immediately, or toggle AppOps wake-up cut-offs.
 
-### Prerequisites
-- **JDK 21** (OpenJDK / Temurin 21)
-- **Android SDK** with `platforms;android-36` and `build-tools;36.0.0`
+Because `RecentsSwipeMonitorService.shouldMonitor` checks both the global switch and every per-app rule, setting even one app to **Auto-Close on Swipe** keeps the lightweight monitor active on boot and after app updates while ignoring everything else.
 
-### Commands
+Long-pressing an app or tapping the checklist icon enters **Batch Selector** mode for multi-app hibernation, policy overrides, AppOps edits, and category component cut-offs.
+
+## Requirements
+
+| Requirement | Why |
+|---|---|
+| Android 12 or newer (`minSdk 31`, `targetSdk 36`) | Required for modern `ApplicationExitInfo`, splash screen attributes, Standby Buckets, and AGSL shaders (Android 13+ for runtime glass refraction) |
+| Shizuku **or** Root (`su`) | Non-root mode can inspect apps and open system App Info pages, while silent force-stop, Standby Buckets, AppOps, and component disabling require [Shizuku](https://shizuku.rikka.app/) or root (`su` via KernelSU, SukiSU-Nova, Magisk, or APatch) |
+| Usage Access (optional) | Needed for wake-up history attribution and screen-awake usage gating inside `RecentsSwipeMonitorService` |
+| Notifications (optional) | Lets the **Quick Action** notification and **Recents Swipe Auto-Close** foreground service post their status |
+
+Both Shizuku and Root can be authorized at the same time. Switch between `Auto`, `Shizuku`, `Root (su)`, and `Non-Root` anytime in **Settings**.
+
+## Building locally
+
+You need **JDK 21** and Android SDK (`platforms;android-36`, `build-tools;36.0.0`).
 
 ```bash
 git clone https://github.com/Unnidentified/greenify-rea.git
 cd greenify-rea
 
-# Run unit tests, Android Lint, and build debug APK
+# Run unit tests, Android Lint, and assemble the debug APK
 ./gradlew testDebugUnitTest lintDebug assembleDebug
 
-# Install debug build on connected device or emulator
+# Install directly onto a connected device or emulator
 ./gradlew installDebug
 ```
 
-## Project Structure
+## Project layout
 
 ```text
 app/src/main/java/com/greenify/reborn/
 ├── data/            # Preferences, JSON backup/export, Raw Engine Log store, app repository
-├── engine/          # Shizuku, Root, Recents/Audio detection, WorkManager, and TileService
-├── model/           # Domain models (AppEntry, AppFilterChip, PerAppPolicy, AppOpRestriction, etc.)
+├── engine/          # Shizuku, Root, Recents/Audio detection, swipe monitor, WorkManager, Quick Tile
+├── model/           # Domain models (AppEntry, AppFilterChip, PerAppPolicy, SwipeCloseMode, AppOpRestriction)
 └── ui/
-    ├── components/  # Status banners, Liquid Glass bottom bar, chips, and search bar
-    ├── home/        # Composable filters, batch selector, per-app & batch adjustment/wake-log sheets
-    ├── settings/    # Dual privileges, Working Mode, Greenify settings, Raw Engine Logs viewer
-    └── theme/       # Miuix-inspired light/dark/tinted palettes & Dynamic Color
-docs/
-├── CHANGELOG.md     # Release history
-├── CONTRIBUTING.md  # Development setup & PR guidelines
-├── NOTICE.md        # Upstream trademark & attribution notice
-└── SECURITY.md      # Vulnerability reporting policy
+    ├── components/  # Splash overlay, custom switches, Liquid Glass bottom bar, acrylic status blur, flowy sheets
+    ├── home/        # Stackable filters, quick Nap button, batch selector, per-app & batch adjustment sheets
+    ├── settings/    # Dual privileges, Working Mode, theme & Menu Bar Tint, Raw Engine Logs viewer
+    └── theme/       # Seven themes (Follow System default, Forest Dark, Sage Light, Mist Light, Midnight Dark, Light, Dark)
+docs/                # Lowercase docs (changelog, contributing, notice, security)
 ```
 
 ## Documentation & License
 
-- [Changelog](docs/CHANGELOG.md)
-- [Contributing Guidelines](docs/CONTRIBUTING.md)
-- [Security Policy](docs/SECURITY.md)
-- [Attribution & Notice](docs/NOTICE.md)
+- [Changelog](docs/changelog.md)
+- [Contributing Guidelines](docs/contributing.md)
+- [Security Policy](docs/security.md)
+- [Attribution & Notice](docs/notice.md)
 - Licensed under the [Apache License 2.0](LICENSE).
