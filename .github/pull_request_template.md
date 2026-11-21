@@ -15,6 +15,7 @@ Closes #
 
 ## Checklist
 
+- [ ] Commit message includes `#<pr>` hashtag
 - [ ] No telemetry, tracking, or proprietary blobs added
 - [ ] Privileged/Shizuku calls remain isolated behind backend interfaces
-- [ ] Updated `docs/CHANGELOG.md` if user-facing behavior changed
+- [ ] Updated `docs/changelog.md` if user-facing behavior changed
