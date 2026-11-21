@@ -7,9 +7,9 @@
 
 Open-source Android app hibernation tool for Android 12+, built from scratch in Kotlin and Jetpack Compose. See [requirements](#requirements) first.
 
-When you nap an app, Android stops its background processes and moves it into a stricter Standby Bucket so it stays quiet until you open it again. You can trigger a nap with one tap beside the search bar, run scheduled passes with `WorkManager`, or let the Recents monitor force-stop apps right when you swipe them away.
+When you "nap" an app, Android stops its background processes and moves it into a stricter Standby Bucket so it stays quiet until you open it again. You can trigger a nap with one tap beside the search bar, run scheduled passes with `WorkManager`, or let the Recents monitor force-stop apps right when you swipe them away.
 
-You do not need Android Studio to try it. Grab the signed APK from [Releases](https://github.com/Unnidentified/greenify-rea/releases/latest) or download a CI build from the [Actions](https://github.com/Unnidentified/greenify-rea/actions) tab.
+Grab the signed APK from [Releases](https://github.com/Unnidentified/greenify-rea/releases/latest) or download a CI build from the [Actions](https://github.com/Unnidentified/greenify-rea/actions) tab.
 
 ---
 
